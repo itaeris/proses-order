@@ -1,6 +1,5 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
 import { fileURLToPath } from 'node:url'
 import dotenv from 'dotenv'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
@@ -270,10 +269,29 @@ async function ensureDefaults() {
   }
 }
 
-function sqliteRows(file: string, sql: string): Array<Record<string, unknown>> {
-  const db = new DatabaseSync(file, { readOnly: true })
+type SqliteDatabase = {
+  prepare: (sql: string) => { all: () => Array<Record<string, unknown>> }
+  close: () => void
+}
+
+async function openSqlite(file: string): Promise<SqliteDatabase | null> {
+  if (process.env.VERCEL) return null
   try {
-    return db.prepare(sql).all() as Array<Record<string, unknown>>
+    const load = new Function('specifier', 'return import(specifier)') as (
+      specifier: string,
+    ) => Promise<{ DatabaseSync: new (path: string, options?: { readOnly?: boolean }) => SqliteDatabase }>
+    const { DatabaseSync } = await load('node:sqlite')
+    return new DatabaseSync(file, { readOnly: true })
+  } catch {
+    return null
+  }
+}
+
+async function sqliteRows(file: string, sql: string): Promise<Array<Record<string, unknown>> | null> {
+  const db = await openSqlite(file)
+  if (!db) return null
+  try {
+    return db.prepare(sql).all()
   } finally {
     db.close()
   }
@@ -283,18 +301,18 @@ async function importSqliteIfEmpty() {
   if ((await countOrders()) > 0) return
   const file = path.join(root, 'data', 'proses-order.sqlite')
   if (!fs.existsSync(file)) return
-  const orders = sqliteRows(file, 'SELECT * FROM orders')
-  if (orders.length === 0) return
+  const orders = await sqliteRows(file, 'SELECT * FROM orders')
+  if (!orders || orders.length === 0) return
   await upsertOrders(orders)
-  const processes = sqliteRows(file, 'SELECT * FROM process') as unknown as ProcessRow[]
-  if (processes.length > 0) await insertProcessRows(processes)
-  const settings = sqliteRows(file, 'SELECT key, value FROM settings')
-  if (settings.length > 0) {
+  const processes = (await sqliteRows(file, 'SELECT * FROM process')) as ProcessRow[] | null
+  if (processes && processes.length > 0) await insertProcessRows(processes)
+  const settings = await sqliteRows(file, 'SELECT key, value FROM settings')
+  if (settings && settings.length > 0) {
     const { error } = await supabase.from('app_settings').upsert(settings)
     fail(error)
   }
-  const syncRows = sqliteRows(file, 'SELECT id, last_sync_at, last_error, last_count FROM sync_state')
-  if (syncRows.length > 0) {
+  const syncRows = await sqliteRows(file, 'SELECT id, last_sync_at, last_error, last_count FROM sync_state')
+  if (syncRows && syncRows.length > 0) {
     const { error } = await supabase.from('sync_state').upsert(syncRows)
     fail(error)
   }

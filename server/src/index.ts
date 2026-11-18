@@ -98,23 +98,29 @@ app.put('/api/routing', async (req, res, next) => {
   }
 })
 
-app.post('/api/sync', async (_req, res, next) => {
+async function handleSync(_req: Request, res: Response, next: NextFunction) {
   try {
     const count = await syncFromShopify()
     res.json({ count })
   } catch (error) {
     next(error)
   }
-})
+}
 
-const dist = path.resolve(here, '../../client/dist')
-app.use(express.static(dist))
-app.use((req, res, next) => {
-  if (req.path.startsWith('/api') || req.method !== 'GET') return next()
-  res.sendFile(path.join(dist, 'index.html'), (error) => {
-    if (error) next()
+app.post('/api/sync', handleSync)
+app.get('/api/sync', handleSync)
+
+const onVercel = process.env.VERCEL === '1'
+if (!onVercel) {
+  const dist = path.resolve(here, '../../client/dist')
+  app.use(express.static(dist))
+  app.use((req, res, next) => {
+    if (req.path.startsWith('/api') || req.method !== 'GET') return next()
+    res.sendFile(path.join(dist, 'index.html'), (error) => {
+      if (error) next()
+    })
   })
-})
+}
 
 app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
   const message = error instanceof Error ? error.message : 'Terjadi kesalahan'
@@ -137,16 +143,20 @@ function startWork() {
   })
 }
 
-const port = Number(process.env.PORT || 8787)
-app.listen(port, () => {
-  console.log(`Proses order berjalan di http://127.0.0.1:${port}`)
-})
+if (!onVercel) {
+  const port = Number(process.env.PORT || 8787)
+  app.listen(port, () => {
+    console.log(`Proses order berjalan di http://127.0.0.1:${port}`)
+  })
 
-const interval = Number(process.env.SYNC_INTERVAL_MS || 120000)
-setInterval(() => {
-  if (!shopifyConfig().configured) return
-  void syncFromShopify().catch(() => {})
-}, interval).unref()
+  const interval = Number(process.env.SYNC_INTERVAL_MS || 120000)
+  setInterval(() => {
+    if (!shopifyConfig().configured) return
+    void syncFromShopify().catch(() => {})
+  }, interval).unref()
+}
+
+export default app
 
 function stringQuery(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined

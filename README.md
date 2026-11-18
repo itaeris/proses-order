@@ -74,7 +74,7 @@ Saat pertama kali tabel masih kosong dan file SQLite lama ada di `data/`, server
 
 ## Vercel
 
-Root proyek ini bisa di-deploy langsung. Vercel membangun halaman Vue dari `client/` dan menjalankan API Express sebagai fungsi serverless di `/api`. Variabel di `.env.example` diisi di pengaturan Environment Variables, bukan lewat file `.env`.
+Root proyek ini satu project Vercel dengan dua service: `client` (halaman Vite, publik di `/`) dan `server` (Express, publik di `/api`). Keduanya tertulis di `vercel.json`. Dashboard memanggil `/api` dari browser lewat domain yang sama, jadi tidak ada binding internal antar service. Variabel di `.env.example` diisi di pengaturan Environment Variables, bukan lewat file `.env`.
 
 Di Vercel tidak ada proses yang hidup terus, jadi sync tiap 2 menit hanya berlaku untuk `npm run dev`. Di sana sync jalan saat fungsi pertama kali bangun, lewat tombol Segarkan, dan lewat Cron sekali sehari pada `GET /api/sync`. Jadwal di `vercel.json` mengikuti batas paket Hobby. Paket Pro bisa dipersempit, misalnya setiap 15 menit.
 

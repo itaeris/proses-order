@@ -143,7 +143,7 @@ export async function indocoliteQuote(orderId: string, destinationId?: number): 
     const method = order.delivery_method ?? ''
     shopifyRates = rates.filter((rate) => matchesShopifyMethod(method, rate.shippingName))
     if (method && rates.length > 0 && shopifyRates.length === 0) {
-      notice = `Shopify sudah memilih ${method}. Tarif kurir itu tidak ada di Pakeet. Kurir lain hanya bisa dipilih lewat Manual.`
+      notice = `Shopify sudah memilih ${method}. Tarif kurir itu tidak ada di Pakeet. Pilih salah satu kurir yang tersedia.`
     }
   }
   return {
@@ -189,7 +189,8 @@ export async function createIndocoliteShipment(input: {
   if (!rate || Math.round(rate.cost) !== Math.round(input.cost)) {
     throw new ClientError('Ongkir itu sudah tidak berlaku. Muat ulang daftarnya.')
   }
-  if (order.delivery_method && order.indocolite_mode !== 'manual' && !matchesShopifyMethod(order.delivery_method, rate.shippingName)) {
+  const shopifyHasRate = quote.shopifyRates.length > 0
+  if (shopifyHasRate && order.delivery_method && order.indocolite_mode !== 'manual' && !matchesShopifyMethod(order.delivery_method, rate.shippingName)) {
     throw new ClientError('Kurir ini bukan pilihan Shopify. Ganti kurir hanya lewat Manual.')
   }
   const from = sender()

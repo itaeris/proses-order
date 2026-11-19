@@ -48,6 +48,7 @@ const emit = defineEmits<{ changed: [order: OrderView] }>()
 const quote = ref<Quote | null>(null)
 const busy = ref(false)
 const destinationId = ref<string | undefined>(undefined)
+const selectedRateKey = ref<string | undefined>(undefined)
 const pickupDate = ref(tomorrow())
 const pickupTime = ref('10:00')
 const pickupVehicle = ref('Motor')
@@ -56,12 +57,17 @@ const shownRates = computed(() => {
   if (!quote.value) return []
   return props.manual ? quote.value.rates : quote.value.shopifyRates
 })
+const substituteRates = computed(() => {
+  if (!quote.value || props.manual || shownRates.value.length > 0) return []
+  return quote.value.rates
+})
 
 watch(
   () => props.orderId,
   () => {
     quote.value = null
     destinationId.value = undefined
+    selectedRateKey.value = undefined
     void load()
   },
   { immediate: true },
@@ -105,7 +111,21 @@ async function chooseOrigin(value: unknown) {
 
 async function chooseDestination(value: unknown) {
   if (typeof value !== 'string' || !value || value === destinationId.value) return
+  selectedRateKey.value = undefined
   await load(value)
+}
+
+function rateKey(rate: Rate) {
+  return `${rate.shippingName}|${rate.serviceName}`
+}
+
+function chooseRate(value: unknown) {
+  selectedRateKey.value = typeof value === 'string' && value ? value : undefined
+}
+
+function createSelected() {
+  const rate = substituteRates.value.find((row) => rateKey(row) === selectedRateKey.value)
+  if (rate) void create(rate)
 }
 
 async function create(rate: Rate) {
@@ -190,9 +210,16 @@ function tomorrow() {
     <p v-if="!quote" class="text-sm text-muted-foreground">Memuat ongkir…</p>
     <template v-else>
       <p v-if="quote.notice && !(manual && quote.notice.includes('lewat Manual'))" class="text-xs text-muted-foreground">{{ quote.notice }}</p>
-      <p v-if="quote.shipment?.awb" class="font-mono text-sm font-medium">{{ quote.shipment.awb }}</p>
+      <p v-if="quote.shipment?.awb" class="text-sm font-medium">
+        <span class="font-mono">{{ quote.shipment.awb }}</span>
+        <span v-if="quote.shipment.cost != null" class="font-normal text-muted-foreground"> · {{ rupiah(quote.shipment.cost) }}</span>
+      </p>
       <p v-else-if="quote.shipment" class="text-xs text-muted-foreground">
         Status permintaan: {{ quote.shipment.status }}
+        <span v-if="quote.shipment.shippingName" class="mt-1 block text-foreground">
+          {{ quote.shipment.shippingName }} {{ quote.shipment.serviceName }}
+          <template v-if="quote.shipment.cost != null"> · {{ rupiah(quote.shipment.cost) }}</template>
+        </span>
         <span v-if="quote.shipment.errorDetail" class="mt-1 block text-rose-800">{{ quote.shipment.errorDetail }}</span>
       </p>
 
@@ -221,6 +248,24 @@ function tomorrow() {
         </Select>
       </label>
       <p v-else-if="quote.destination" class="text-xs text-muted-foreground">Tujuan: {{ quote.destination.label }}</p>
+
+      <div v-if="!quote.shipment?.awb && substituteRates.length" class="space-y-2">
+        <label class="block space-y-1 text-sm">
+          <span class="text-muted-foreground">Pilih kurir</span>
+          <Select :model-value="selectedRateKey" @update:model-value="chooseRate">
+            <SelectTrigger class="w-full bg-background">
+              <SelectValue placeholder="Pilih kurir dan ongkir" />
+            </SelectTrigger>
+            <SelectContent position="popper">
+              <SelectItem v-for="rate in substituteRates" :key="rateKey(rate)" :value="rateKey(rate)">
+                {{ rate.shippingName }} {{ rate.serviceName }} · {{ rupiah(rate.cost) }}<template v-if="rate.etd && rate.etd !== '-'"> · {{ rate.etd }}</template>
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </label>
+        <p class="text-xs text-muted-foreground">Berat paket {{ quote.weightKg }} kg. Saldo terpotong saat resi dibuat.</p>
+        <Button type="button" class="w-full" :disabled="busy || !selectedRateKey" @click="createSelected">Buat resi</Button>
+      </div>
 
       <div v-if="!quote.shipment?.awb && shownRates.length" class="space-y-2">
         <p class="text-xs text-muted-foreground">

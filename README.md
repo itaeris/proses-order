@@ -13,10 +13,10 @@ Sync menarik order dengan filter Shopify: pembayaran **Paid**, fulfillment **Unf
 Channel diisi otomatis:
 
 - Negara kirim selain Indonesia, atau metode kirim yang mengandung `DHL`, masuk DHL.
-- Domestik mengikuti tab **Peta kurir**. Awalnya JNE, Lion, Ninja, SiCepat, J&T, dan Anteraja masuk Biteship. POS masuk Indocolite.
+- Domestik mengikuti tab **Metode kirim**. Awalnya JNE, Lion, Ninja, SiCepat, J&T, dan Anteraja masuk Biteship. POS masuk Indocolite.
 - Yang tidak cocok tetap di **Perlu dipilih** sampai seseorang memilih channel.
 
-Memilih channel secara manual mengunci order itu. Mengganti channel mengulang langkah kurir dan membatalkan validasi resi. Menyimpan peta kurir hanya menggeser order yang masih di antrian dan belum dikunci.
+Memilih channel secara manual mengunci order itu. Mengganti channel mengulang langkah kurir dan membatalkan validasi resi. Menyimpan metode kirim hanya menggeser order yang masih di antrian dan belum dikunci.
 
 Dua jalur harus selesai:
 
@@ -34,7 +34,7 @@ Order Biteship memakai API yang sama polanya. Ongkir dihitung dari kode pos guda
 
 Order yang lewat batas kirim, atau sudah lebih dari 24 jam dan belum siap pickup, ditandai terlambat. Antrian bawaan menyembunyikan order yang sudah siap pickup.
 
-Antrian hanya terbuka setelah masuk. Admin pertama adalah `it@aerisbeaute.com`. Nama, email, nomor, dan kata sandi bisa diganti dari menu Pengaturan, dan admin bisa menambah serta mengubah pengguna dari menu yang sama. Nama petugas mengikuti akun yang sedang masuk. Klaim order dan validasi resi tercatat atas nama itu. Klik baris order membuka halaman `/manage-order` untuk order itu, bukan panel samping.
+Antrian hanya terbuka setelah masuk. Admin pertama adalah `it@aerisbeaute.com`. Nama, email, nomor, dan kata sandi bisa diganti dari menu Pengaturan, dan admin bisa menambah serta mengubah pengguna dari menu yang sama. Nama petugas mengikuti akun yang sedang masuk. Tombol Proses dan validasi resi tercatat atas nama itu. Klik baris order membuka halaman `/manage-order` untuk order itu, bukan panel samping.
 
 ## Menjalankan
 

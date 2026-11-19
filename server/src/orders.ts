@@ -390,12 +390,12 @@ export async function applyAction(id: string, body: ActionBody, actor = ''): Pro
 const COURIERS = new Set<CourierChannel>(['indocolite', 'biteship', 'dhl'])
 
 export async function updateRules(input: RoutingRule[]) {
-  if (!Array.isArray(input) || input.length > 40) throw new ClientError('Peta kurir tidak valid')
+  if (!Array.isArray(input) || input.length > 40) throw new ClientError('Metode kirim tidak valid')
   const rules: RoutingRule[] = []
   for (const rule of input) {
     const match = (rule.match ?? '').trim()
     if (!match || match.length > 60) throw new ClientError('Kata kunci kurir kosong atau terlalu panjang')
-    if (!COURIERS.has(rule.channel)) throw new ClientError('Channel pada peta kurir tidak dikenal')
+    if (!COURIERS.has(rule.channel)) throw new ClientError('Kurir pada metode kirim tidak dikenal')
     rules.push({ match, channel: rule.channel })
   }
   await saveRules(rules)

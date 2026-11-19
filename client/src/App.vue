@@ -193,7 +193,7 @@ function onChanged(order: OrderView) {
 }
 
 function currentStep(order: OrderView) {
-  if (order.channel === 'unassigned') return 'Pilih channel'
+  if (order.channel === 'unassigned') return 'Pilih kurir'
   return order.channelSteps.find((step) => step.state === 'current')?.label ?? (order.channelDone ? 'Selesai' : '—')
 }
 
@@ -355,7 +355,7 @@ onUnmounted(() => {
 
       <section class="grid shrink-0 grid-cols-2 gap-2 md:grid-cols-5">
         <button type="button" class="cursor-pointer rounded-xl border bg-card px-3 py-3 text-left shadow-xs" @click="preset('unclaimed')">
-          <p class="text-xs text-muted-foreground">Belum diklaim</p>
+          <p class="text-xs text-muted-foreground">Belum ada petugas</p>
           <Skeleton v-if="!summary" class="mt-2 h-8 w-12" />
           <p v-else class="mt-1 text-2xl font-semibold tabular-nums">{{ summary.unclaimed }}</p>
           <p class="mt-1 text-[11px] leading-snug text-muted-foreground">Belum ada petugas yang mengerjakan.</p>
@@ -373,7 +373,7 @@ onUnmounted(() => {
           <p class="mt-1 text-[11px] leading-snug text-muted-foreground">Lewat batas kirim, atau sudah lebih dari 24 jam.</p>
         </button>
         <button type="button" class="cursor-pointer rounded-xl border bg-card px-3 py-3 text-left shadow-xs" @click="preset('unassigned')">
-          <p class="text-xs text-muted-foreground">Perlu channel</p>
+          <p class="text-xs text-muted-foreground">Kurir belum dipilih</p>
           <Skeleton v-if="!summary" class="mt-2 h-8 w-12" />
           <p v-else class="mt-1 text-2xl font-semibold tabular-nums">{{ summary.byChannel.unassigned }}</p>
           <p class="mt-1 text-[11px] leading-snug text-muted-foreground">Metode kirim belum masuk Indocolite, Biteship, atau DHL.</p>
@@ -391,7 +391,7 @@ onUnmounted(() => {
           <TabsTrigger value="active">Antrian {{ summary?.queue ?? '' }}</TabsTrigger>
           <TabsTrigger value="awaiting_awb">Menunggu resi</TabsTrigger>
           <TabsTrigger value="ready">Siap pickup</TabsTrigger>
-          <TabsTrigger value="routing">Peta kurir</TabsTrigger>
+          <TabsTrigger value="routing">Metode kirim</TabsTrigger>
         </TabsList>
       </Tabs>
 
@@ -476,7 +476,7 @@ onUnmounted(() => {
               @click="openOrder(order)"
             >
               <TableCell>
-                <p class="font-mono font-medium">{{ order.name }}</p>
+                <p class="font-mono font-bold">{{ order.name }}</p>
                 <p class="text-xs text-muted-foreground">{{ age(order.createdAt) }} · {{ order.itemCount }} item</p>
               </TableCell>
               <TableCell>

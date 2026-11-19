@@ -1,6 +1,6 @@
 # Proses order
 
-Dashboard antrian gudang untuk order Shopify yang sudah dibayar dan belum terpenuhi. Order dikelompokkan ke Indocolite, Biteship, atau DHL. Label, packing, dan validasi resi dicatat di sini. Resi Indocolite dan Biteship bisa dibuat dari halaman order. DHL tetap dikerjakan di luar aplikasi ini.
+Dashboard antrian gudang untuk order Shopify yang sudah dibayar dan belum terpenuhi. Order dikelompokkan ke Indocolite, Biteship, atau DHL. Label, packing, dan validasi resi dicatat di sini. Resi Indocolite, Biteship, dan DHL bisa dibuat dari halaman order.
 
 Kurir tidak boleh ditandai siap pickup sebelum checklist kurir selesai dan nomor resi divalidasi.
 
@@ -28,9 +28,11 @@ Dua jalur harus selesai:
 
 **Siap pickup** hanya menyala kalau channel sudah ditunjuk, checklist kurir selesai, packing selesai, dan resi sudah divalidasi.
 
-Order Indocolite mode otomatis bisa dibuatkan resi dari panel detail lewat API Pakeet, memakai kurir yang sudah dipilih di Shopify. Kalau kurir itu tidak ada di Pakeet, petugas memilih salah satu tarif yang tersedia dari dropdown. Channel tidak bisa diganti dari sini. Tombol Manual membuka pilihan channel dan kurir lain. Gudang asal dibaca dari `.env`. Petugas memilih kelurahan bila kode pos punya lebih dari satu. Saldo dompet Pakeet terpotong saat resi dibuat. Pickup tetap tombol terpisah. Berat paket memakai `PAKEET_DEFAULT_WEIGHT_KG` karena Shopify tidak mengirim berat barang.
+Order Indocolite mode otomatis bisa dibuatkan resi dari panel detail lewat API Pakeet, memakai tarif termurah dari kurir yang sudah dipilih di Shopify. Kalau kurir itu tidak ada di Pakeet, yang dipakai tarif termurah dari semua kurir yang tersedia. Channel tidak bisa diganti dari sini. Tombol Manual memakai tarif termurah dari semua kurir. Gudang asal dibaca dari `.env`. Kelurahan gudang dan penerima dipilih otomatis dari kode pos. Saldo dompet Pakeet terpotong saat resi dibuat. Pickup tetap tombol terpisah. Berat paket memakai `PAKEET_DEFAULT_WEIGHT_KG` karena Shopify tidak mengirim berat barang.
 
-Order Biteship memakai API yang sama polanya. Ongkir dihitung dari kode pos gudang dan penerima. Kurir mengikuti Shopify. Kalau tarifnya tidak ada, petugas memilih kurir lain dari dropdown, atau menekan Manual. Saldo dompet tampil di panel. Tombol pada tarif membuat resi dan memotong saldo itu. Nomor resi mengisi checklist kurir sampai langkah bayar. Validasi resi di gudang tetap terpisah. Isi `BITESHIP_API_KEY`. Alamat gudang dan berat paket memakai variabel `PAKEET_SENDER_*` dan `PAKEET_DEFAULT_WEIGHT_KG`.
+Order Biteship memakai API yang sama polanya. Ongkir dihitung dari kode pos gudang dan penerima. Kurir mengikuti Shopify, dan yang dipakai tarif termurah dari kurir itu. Kalau tarifnya tidak ada, yang dipakai tarif termurah dari semua kurir. Manual juga memakai tarif termurah dari semua kurir. Saldo dompet tampil di panel. Tombol Buat resi membuat resi dan memotong saldo itu. Nomor resi mengisi checklist kurir sampai langkah bayar. Validasi resi di gudang tetap terpisah. Isi `BITESHIP_API_KEY`. Alamat gudang dan berat paket memakai variabel `PAKEET_SENDER_*` dan `PAKEET_DEFAULT_WEIGHT_KG`.
+
+Order DHL memakai MyDHL API. Ongkir dihitung dari alamat gudang dan penerima, lalu yang dipakai produk termurah. Tombol Buat resi membuat kiriman di akun DHL dan menyimpan nomor resi. Label PDF bisa diunduh dari kartu yang sama. Pickup tidak diajukan otomatis. Validasi resi di gudang tetap terpisah. Isi `DHL_API_KEY`, `DHL_API_SECRET`, dan `DHL_ACCOUNT_NUMBER`. Alamat gudang dan berat paket memakai variabel `PAKEET_SENDER_*` dan `PAKEET_DEFAULT_WEIGHT_KG`.
 
 Order yang lewat batas kirim, atau sudah lebih dari 24 jam dan belum siap pickup, ditandai terlambat. Antrian bawaan menyembunyikan order yang sudah siap pickup.
 

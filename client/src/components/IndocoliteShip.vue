@@ -2,7 +2,6 @@
 import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { api } from '@/lib/api'
 import type { OrderView } from '@/lib/types'
 
@@ -33,9 +32,7 @@ interface Quote {
   balance: number
   weightKg: number
   origin: Place | null
-  originChoices: Place[]
   destination: Place | null
-  destinationChoices: Place[]
   rates: Rate[]
   shopifyRates: Rate[]
   shipment: Shipment | null
@@ -47,42 +44,33 @@ const emit = defineEmits<{ changed: [order: OrderView] }>()
 
 const quote = ref<Quote | null>(null)
 const busy = ref(false)
-const destinationId = ref<string | undefined>(undefined)
-const selectedRateKey = ref<string | undefined>(undefined)
 const pickupDate = ref(tomorrow())
 const pickupTime = ref('10:00')
 const pickupVehicle = ref('Motor')
-const pickingOrigin = ref(false)
 const shownRates = computed(() => {
   if (!quote.value) return []
   return props.manual ? quote.value.rates : quote.value.shopifyRates
 })
-const substituteRates = computed(() => {
-  if (!quote.value || props.manual || shownRates.value.length > 0) return []
-  return quote.value.rates
-})
+const offer = computed(() => cheapest(shownRates.value.length ? shownRates.value : (quote.value?.rates ?? [])))
+const shopifyCourier = computed(() => !props.manual && shownRates.value.length > 0)
 
 watch(
   () => props.orderId,
   () => {
     quote.value = null
-    destinationId.value = undefined
-    selectedRateKey.value = undefined
     void load()
   },
   { immediate: true },
 )
 
-function path(suffix = '') {
-  return `/api/orders/${encodeURIComponent(props.orderId)}/indocolite${suffix}`
+function path() {
+  return `/api/orders/${encodeURIComponent(props.orderId)}/indocolite`
 }
 
-async function load(nextDestination?: string) {
+async function load() {
   busy.value = true
   try {
-    const query = nextDestination ? `?destinationId=${encodeURIComponent(nextDestination)}` : ''
-    quote.value = await api<Quote>(path(query))
-    destinationId.value = quote.value.destination ? String(quote.value.destination.id) : undefined
+    quote.value = await api<Quote>(path())
   } catch (error) {
     toast.error(error instanceof Error ? error.message : 'Ongkir Indocolite gagal dimuat')
   } finally {
@@ -90,42 +78,8 @@ async function load(nextDestination?: string) {
   }
 }
 
-async function chooseOrigin(value: unknown) {
-  if (!pickingOrigin.value) return
-  pickingOrigin.value = false
-  if (typeof value !== 'string' || !value) return
-  if (quote.value?.origin && String(quote.value.origin.id) === value) return
-  busy.value = true
-  try {
-    quote.value = await api<Quote>(path(), {
-      method: 'POST',
-      body: JSON.stringify({ action: 'origin', originId: Number(value) }),
-    })
-    destinationId.value = quote.value.destination ? String(quote.value.destination.id) : undefined
-  } catch (error) {
-    toast.error(error instanceof Error ? error.message : 'Kelurahan gudang gagal disimpan')
-  } finally {
-    busy.value = false
-  }
-}
-
-async function chooseDestination(value: unknown) {
-  if (typeof value !== 'string' || !value || value === destinationId.value) return
-  selectedRateKey.value = undefined
-  await load(value)
-}
-
-function rateKey(rate: Rate) {
-  return `${rate.shippingName}|${rate.serviceName}`
-}
-
-function chooseRate(value: unknown) {
-  selectedRateKey.value = typeof value === 'string' && value ? value : undefined
-}
-
-function createSelected() {
-  const rate = substituteRates.value.find((row) => rateKey(row) === selectedRateKey.value)
-  if (rate) void create(rate)
+function cheapest(rows: Rate[]) {
+  return rows.reduce<Rate | null>((best, row) => (!best || row.cost < best.cost ? row : best), null)
 }
 
 async function create(rate: Rate) {
@@ -223,68 +177,17 @@ function tomorrow() {
         <span v-if="quote.shipment.errorDetail" class="mt-1 block text-rose-800">{{ quote.shipment.errorDetail }}</span>
       </p>
 
-      <label v-if="!quote.origin && quote.originChoices.length > 1" class="block space-y-1 text-sm">
-        <span class="text-muted-foreground">Kelurahan gudang</span>
-        <Select @update:model-value="chooseOrigin">
-          <SelectTrigger class="w-full bg-background" @pointerdown="pickingOrigin = true">
-            <SelectValue placeholder="Pilih kelurahan" />
-          </SelectTrigger>
-          <SelectContent position="popper">
-            <SelectItem v-for="place in quote.originChoices" :key="place.id" :value="String(place.id)">{{ place.label }}</SelectItem>
-          </SelectContent>
-        </Select>
-      </label>
-      <p v-else-if="quote.origin" class="text-xs text-muted-foreground">Gudang: {{ quote.origin.label }}</p>
+      <p v-if="quote.origin" class="text-xs text-muted-foreground">Gudang: {{ quote.origin.label }}</p>
+      <p v-if="quote.destination" class="text-xs text-muted-foreground">Tujuan: {{ quote.destination.label }}</p>
 
-      <label v-if="!quote.destination && quote.destinationChoices.length > 1" class="block space-y-1 text-sm">
-        <span class="text-muted-foreground">Kelurahan penerima</span>
-        <Select :model-value="destinationId" @update:model-value="chooseDestination">
-          <SelectTrigger class="w-full bg-background">
-            <SelectValue placeholder="Pilih kelurahan" />
-          </SelectTrigger>
-          <SelectContent position="popper">
-            <SelectItem v-for="place in quote.destinationChoices" :key="place.id" :value="String(place.id)">{{ place.label }}</SelectItem>
-          </SelectContent>
-        </Select>
-      </label>
-      <p v-else-if="quote.destination" class="text-xs text-muted-foreground">Tujuan: {{ quote.destination.label }}</p>
-
-      <div v-if="!quote.shipment?.awb && substituteRates.length" class="space-y-2">
-        <label class="block space-y-1 text-sm">
-          <span class="text-muted-foreground">Pilih kurir</span>
-          <Select :model-value="selectedRateKey" @update:model-value="chooseRate">
-            <SelectTrigger class="w-full bg-background">
-              <SelectValue placeholder="Pilih kurir dan ongkir" />
-            </SelectTrigger>
-            <SelectContent position="popper">
-              <SelectItem v-for="rate in substituteRates" :key="rateKey(rate)" :value="rateKey(rate)">
-                {{ rate.shippingName }} {{ rate.serviceName }} · {{ rupiah(rate.cost) }}<template v-if="rate.etd && rate.etd !== '-'"> · {{ rate.etd }}</template>
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        </label>
-        <p class="text-xs text-muted-foreground">Berat paket {{ quote.weightKg }} kg. Saldo terpotong saat resi dibuat.</p>
-        <Button type="button" class="w-full" :disabled="busy || !selectedRateKey" @click="createSelected">Buat resi</Button>
-      </div>
-
-      <div v-if="!quote.shipment?.awb && shownRates.length" class="space-y-2">
-        <p class="text-xs text-muted-foreground">
-          Berat paket {{ quote.weightKg }} kg.
-          {{ manual ? 'Manual: kurir boleh diganti.' : 'Kurir mengikuti Shopify.' }}
-          Saldo terpotong saat resi dibuat.
+      <div v-if="!quote.shipment?.awb && offer" class="space-y-2">
+        <p class="text-sm">
+          {{ offer.shippingName }} {{ offer.serviceName }}
+          <span class="text-muted-foreground"> · {{ rupiah(offer.cost) }}</span>
+          <span v-if="offer.etd && offer.etd !== '-'" class="text-muted-foreground"> · {{ offer.etd }}</span>
         </p>
-        <Button
-          v-for="rate in shownRates"
-          :key="rate.shippingName + rate.serviceName"
-          variant="outline"
-          class="h-auto w-full justify-between whitespace-normal"
-          type="button"
-          :disabled="busy"
-          @click="create(rate)"
-        >
-          <span>{{ rate.shippingName }} {{ rate.serviceName }}</span>
-          <span class="font-medium">{{ rupiah(rate.cost) }}<span v-if="rate.etd" class="font-normal text-muted-foreground"> · {{ rate.etd }}</span></span>
-        </Button>
+        <p class="text-xs text-muted-foreground">Berat paket {{ quote.weightKg }} kg. {{ shopifyCourier ? 'Dipakai tarif termurah dari kurir Shopify.' : 'Dipakai tarif termurah.' }} Saldo terpotong saat resi dibuat.</p>
+        <Button type="button" class="w-full" :disabled="busy" @click="create(offer)">Buat resi</Button>
       </div>
 
       <Button v-if="quote.shipment && !quote.shipment.awb" variant="outline" type="button" :disabled="busy" @click="refresh">

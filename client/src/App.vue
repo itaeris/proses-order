@@ -95,7 +95,7 @@ async function load(silent = false) {
         orders.value = data.orders
         summary.value = data.summary
         const code = manageCode.value.toLowerCase()
-        if (code) {
+        if (code && managed.value) {
           const fresh = data.orders.find((order) => order.name.replace(/^#/, '').toLowerCase() === code)
           if (fresh) managed.value = fresh
         }
@@ -166,9 +166,14 @@ async function openManaged() {
   const code = manageCode.value
   if (!code || !user.value) return
   manageLoading.value = true
+  managed.value = null
   await nextTick()
+  await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)))
+  if (manageCode.value !== code) return
   const known = orders.value.find((order) => orderCode(order).toLowerCase() === code.toLowerCase())
   if (known) {
+    await new Promise((resolve) => window.setTimeout(resolve, 180))
+    if (manageCode.value !== code) return
     managed.value = known
     manageLoading.value = false
     return
@@ -235,7 +240,12 @@ function onPopState() {
 onMounted(async () => {
   window.addEventListener('popstate', onPopState)
   try {
-    await enter(await api<SessionUser>('/api/me'))
+    const account = await api<SessionUser>('/api/me')
+    user.value = account
+    if (manageCode.value) manageLoading.value = true
+    booting.value = false
+    await nextTick()
+    await enter(account)
     if (manageCode.value) await openManaged()
   } catch {
     user.value = null
@@ -309,24 +319,28 @@ onUnmounted(() => {
     </main>
 
     <main v-else-if="manageCode" class="flex min-h-0 w-full flex-1 flex-col">
-      <div v-if="manageLoading && !managed" class="flex min-h-0 flex-1 flex-col">
-        <div class="flex items-center justify-between gap-3 border-b px-4 py-4">
-          <div>
-            <Skeleton class="h-6 w-36" />
-            <Skeleton class="mt-2 h-4 w-64" />
+      <div v-if="manageLoading && !managed" class="flex min-h-0 flex-1 flex-col bg-background">
+        <header class="shrink-0 border-b px-4 py-3">
+          <div class="flex flex-wrap items-center gap-3">
+            <Skeleton class="h-8 w-24" />
+            <Skeleton class="h-5 min-w-0 flex-1" />
+            <Skeleton class="h-6 w-20 rounded-full" />
+            <Skeleton class="h-8 w-20" />
           </div>
-          <Skeleton class="h-8 w-24" />
-        </div>
-        <div class="grid gap-6 px-4 py-4 lg:grid-cols-2">
+        </header>
+        <div class="grid items-start gap-4 px-4 py-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
           <div class="space-y-4">
-            <Skeleton class="h-24 w-full" />
-            <Skeleton class="h-28 w-full" />
-            <Skeleton class="h-14 w-full" />
+            <div class="grid gap-4 md:grid-cols-2">
+              <Skeleton class="h-24 rounded-xl" />
+              <Skeleton class="h-24 rounded-xl" />
+            </div>
+            <Skeleton class="h-52 rounded-xl" />
+            <Skeleton class="h-40 rounded-xl" />
+            <Skeleton class="h-36 rounded-xl" />
           </div>
           <div class="space-y-4">
-            <Skeleton class="h-44 w-full" />
-            <Skeleton class="h-44 w-full" />
-            <Skeleton class="h-28 w-full" />
+            <Skeleton class="h-52 rounded-xl" />
+            <Skeleton class="h-36 rounded-xl" />
           </div>
         </div>
       </div>

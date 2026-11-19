@@ -8,6 +8,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import BiteshipShip from '@/components/BiteshipShip.vue'
+import DhlShip from '@/components/DhlShip.vue'
 import IndocoliteShip from '@/components/IndocoliteShip.vue'
 import { api } from '@/lib/api'
 import { money, when } from '@/lib/format'
@@ -306,6 +307,12 @@ function stepClass(step: StepDef) {
               class="mt-3"
               :order-id="order.id"
               :manual="order.indocoliteMode === 'manual'"
+              @changed="emit('changed', $event)"
+            />
+            <DhlShip
+              v-if="order.channel === 'dhl'"
+              class="mt-3"
+              :order-id="order.id"
               @changed="emit('changed', $event)"
             />
             <ol v-if="order.channelSteps.length" class="mt-3 space-y-2">

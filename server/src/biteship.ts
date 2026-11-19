@@ -226,7 +226,7 @@ export async function biteshipQuote(orderId: string): Promise<BiteshipQuote> {
   const shipment = await loadShipment(order.id)
   let notice: string | null = null
   if (order.delivery_method && order.indocolite_mode !== 'manual' && shopifyRates.length === 0) {
-    notice = `Shopify sudah memilih ${order.delivery_method}. Tarif kurir itu tidak ada di Biteship. Pilih salah satu kurir yang tersedia.`
+    notice = `Shopify sudah memilih ${order.delivery_method}. Tarif kurir itu tidak ada di Biteship, jadi dipakai yang termurah.`
   }
   return {
     balance,

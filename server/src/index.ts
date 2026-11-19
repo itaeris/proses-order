@@ -19,6 +19,7 @@ import {
 } from './auth.js'
 import { ensureDatabase, getJoined, getRules, getSyncState } from './db.js'
 import { biteshipBalance, biteshipQuote, createBiteshipShipment, refreshBiteshipShipment } from './biteship.js'
+import { createDhlShipment, dhlLabel, dhlQuote, refreshDhlShipment } from './dhl.js'
 import {
   createIndocoliteShipment,
   indocoliteQuote,
@@ -254,6 +255,46 @@ app.post('/api/orders/:id/indocolite', async (req, res, next) => {
       return
     }
     throw new ClientError('Aksi Indocolite tidak dikenal')
+  } catch (error) {
+    next(asClient(error))
+  }
+})
+
+app.get('/api/orders/:id/dhl/label', async (req, res, next) => {
+  try {
+    res.json(await dhlLabel(req.params.id))
+  } catch (error) {
+    next(asClient(error))
+  }
+})
+
+app.get('/api/orders/:id/dhl', async (req, res, next) => {
+  try {
+    res.json(await dhlQuote(req.params.id))
+  } catch (error) {
+    next(asClient(error))
+  }
+})
+
+app.post('/api/orders/:id/dhl', async (req, res, next) => {
+  try {
+    const body = req.body ?? {}
+    const id = req.params.id
+    if (body.action === 'create') {
+      const shipment = await createDhlShipment({
+        orderId: id,
+        productCode: String(body.productCode ?? ''),
+        cost: Number(body.cost),
+      })
+      res.json({ shipment, order: await currentOrder(id) })
+      return
+    }
+    if (body.action === 'refresh') {
+      const shipment = await refreshDhlShipment(id)
+      res.json({ shipment, order: await currentOrder(id) })
+      return
+    }
+    throw new ClientError('Aksi DHL tidak dikenal')
   } catch (error) {
     next(asClient(error))
   }

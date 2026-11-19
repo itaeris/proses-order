@@ -68,15 +68,10 @@ function sender() {
   return { name, phone, address, city, province, postalCode }
 }
 
-function prefer(rows: PakeetDestination[], address: string) {
+function pickPlace(rows: PakeetDestination[], address: string) {
+  if (rows.length === 0) return null
   const hay = address.toLowerCase()
-  const scored = rows.map((row) => ({ row, score: score(row, hay) }))
-  const best = Math.max(0, ...scored.map((item) => item.score))
-  if (best > 0) {
-    const winners = scored.filter((item) => item.score === best).map((item) => item.row)
-    return { rows: winners, picked: winners.length === 1 ? winners[0] : null }
-  }
-  return { rows, picked: rows.length === 1 ? rows[0] : null }
+  return [...rows].sort((a, b) => score(b, hay) - score(a, hay) || a.id - b.id)[0]
 }
 
 function score(row: PakeetDestination, hay: string) {
@@ -125,14 +120,18 @@ export async function indocoliteQuote(orderId: string, destinationId?: number): 
     searchDestinations(recipient.zip || recipient.city),
     loadShipment(orderId),
   ])
-  const origin = (await savedOrigin(originChoices)) ?? (originChoices.length === 1 ? originChoices[0] : null)
-  const ranked = prefer(destinationChoices, order.shipping_address ?? '')
-  const destination = ranked.rows.find((row) => row.id === destinationId) ?? ranked.picked
+  let origin = await savedOrigin(originChoices)
+  if (!origin && originChoices.length > 0) {
+    const from = sender()
+    origin = pickPlace(originChoices, `${from.address}, ${from.city}`)
+    if (origin) await setSetting(ORIGIN_KEY, String(origin.id))
+  }
+  const destination = destinationChoices.find((row) => row.id === destinationId) ?? pickPlace(destinationChoices, order.shipping_address ?? '')
   let rates: PakeetRate[] = []
   let shopifyRates: PakeetRate[] = []
   let notice: string | null = null
-  if (!origin) notice = 'Pilih kelurahan gudang dulu. Kode pos 13410 punya lebih dari satu kelurahan.'
-  else if (!destination) notice = 'Pilih kelurahan penerima. Pencarian kode pos menemukan beberapa kecocokan.'
+  if (!origin) notice = 'Kelurahan gudang tidak ditemukan dari kode pos gudang.'
+  else if (!destination) notice = 'Kelurahan penerima tidak ditemukan dari alamat Shopify.'
   else {
     rates = await calculateRates({
       originId: origin.id,
@@ -143,7 +142,7 @@ export async function indocoliteQuote(orderId: string, destinationId?: number): 
     const method = order.delivery_method ?? ''
     shopifyRates = rates.filter((rate) => matchesShopifyMethod(method, rate.shippingName))
     if (method && rates.length > 0 && shopifyRates.length === 0) {
-      notice = `Shopify sudah memilih ${method}. Tarif kurir itu tidak ada di Pakeet. Pilih salah satu kurir yang tersedia.`
+      notice = `Shopify sudah memilih ${method}. Tarif kurir itu tidak ada di Pakeet, jadi dipakai yang termurah.`
     }
   }
   return {
@@ -153,7 +152,7 @@ export async function indocoliteQuote(orderId: string, destinationId?: number): 
     originChoices,
     recipient,
     destination,
-    destinationChoices: ranked.rows,
+    destinationChoices,
     rates,
     shopifyRates,
     shipment,

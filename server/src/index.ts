@@ -2,8 +2,15 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import dotenv from 'dotenv'
 import express, { type NextFunction, type Request, type Response } from 'express'
-import { ensureDatabase, getRules, getSyncState } from './db.js'
-import { applyAction, ClientError, listOrders, summary, updateRules, type ListFilters } from './orders.js'
+import { ensureDatabase, getJoined, getRules, getSyncState } from './db.js'
+import {
+  createIndocoliteShipment,
+  indocoliteQuote,
+  refreshIndocoliteShipment,
+  requestIndocolitePickup,
+  saveOrigin,
+} from './indocolite.js'
+import { applyAction, ClientError, listOrders, summary, toView, updateRules, type ListFilters } from './orders.js'
 import { seedIfEmpty } from './seed.js'
 import { shopifyConfig } from './shopify.js'
 import { hasActiveSample } from './store.js'
@@ -78,6 +85,56 @@ app.post('/api/orders/:id/actions', async (req, res, next) => {
     res.json({ order })
   } catch (error) {
     next(error)
+  }
+})
+
+app.get('/api/orders/:id/indocolite', async (req, res, next) => {
+  try {
+    const destinationId = Number(req.query.destinationId)
+    res.json(await indocoliteQuote(req.params.id, destinationId > 0 ? destinationId : undefined))
+  } catch (error) {
+    next(asClient(error))
+  }
+})
+
+app.post('/api/orders/:id/indocolite', async (req, res, next) => {
+  try {
+    const body = req.body ?? {}
+    const id = req.params.id
+    if (body.action === 'origin') {
+      await saveOrigin(Number(body.originId))
+      res.json(await indocoliteQuote(id))
+      return
+    }
+    if (body.action === 'create') {
+      const shipment = await createIndocoliteShipment({
+        orderId: id,
+        destinationId: Number(body.destinationId),
+        shippingName: String(body.shippingName ?? ''),
+        serviceName: String(body.serviceName ?? ''),
+        cost: Number(body.cost),
+      })
+      res.json({ shipment, order: await currentOrder(id) })
+      return
+    }
+    if (body.action === 'refresh') {
+      const shipment = await refreshIndocoliteShipment(id)
+      res.json({ shipment, order: await currentOrder(id) })
+      return
+    }
+    if (body.action === 'pickup') {
+      const shipment = await requestIndocolitePickup({
+        orderId: id,
+        date: String(body.date ?? ''),
+        time: String(body.time ?? ''),
+        vehicle: String(body.vehicle ?? ''),
+      })
+      res.json({ shipment, order: await currentOrder(id) })
+      return
+    }
+    throw new ClientError('Aksi Indocolite tidak dikenal')
+  } catch (error) {
+    next(asClient(error))
   }
 })
 
@@ -160,4 +217,15 @@ export default app
 
 function stringQuery(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+async function currentOrder(id: string) {
+  const row = await getJoined(id)
+  return row ? toView(row) : null
+}
+
+function asClient(error: unknown) {
+  if (error instanceof ClientError) return error
+  if (error instanceof Error) return new ClientError(error.message)
+  return error
 }

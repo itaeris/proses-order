@@ -157,6 +157,17 @@ export async function saveRules(rules: RoutingRule[]) {
   fail(error)
 }
 
+export async function getSetting(key: string): Promise<string | null> {
+  const { data, error } = await supabase.from('app_settings').select('value').eq('key', key).maybeSingle()
+  fail(error)
+  return data?.value ?? null
+}
+
+export async function setSetting(key: string, value: string) {
+  const { error } = await supabase.from('app_settings').upsert({ key, value })
+  fail(error)
+}
+
 export async function getSyncState(): Promise<SyncState> {
   const { data, error } = await supabase
     .from('sync_state')

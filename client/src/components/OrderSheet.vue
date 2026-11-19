@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import IndocoliteShip from '@/components/IndocoliteShip.vue'
 import { api } from '@/lib/api'
 import { money, when } from '@/lib/format'
 import { CHANNEL_LABEL, type ChannelId, type OrderView, type StepDef } from '@/lib/types'
@@ -57,7 +58,7 @@ async function act(body: Record<string, unknown>, success?: string) {
   if (!props.order) return
   busy.value = true
   try {
-    const data = await api<{ order: OrderView }>(`/api/orders/${props.order.id}/actions`, {
+    const data = await api<{ order: OrderView }>(`/api/orders/${encodeURIComponent(props.order.id)}/actions`, {
       method: 'POST',
       body: JSON.stringify(body),
     })
@@ -184,7 +185,11 @@ function stepClass(step: StepDef) {
                 Kembali
               </Button>
             </div>
-            <div class="mt-2 flex flex-wrap gap-2">
+            <p v-if="order.deliveryMethod" class="mt-2 text-sm">
+              {{ order.deliveryMethod }}
+              <span class="text-muted-foreground">· dari Shopify</span>
+            </p>
+            <div v-if="!order.deliveryMethod || order.channel === 'unassigned' || order.indocoliteMode === 'manual'" class="mt-2 flex flex-wrap gap-2">
               <Button
                 v-for="channel in (['indocolite', 'biteship', 'dhl'] as const)"
                 :key="channel"
@@ -197,7 +202,7 @@ function stepClass(step: StepDef) {
                 {{ CHANNEL_LABEL[channel] }}
               </Button>
             </div>
-            <div v-if="order.channel === 'indocolite'" class="mt-2 flex gap-2">
+            <div v-if="order.deliveryMethod || order.channel === 'indocolite'" class="mt-2 flex gap-2">
               <Button size="sm" type="button" :variant="order.indocoliteMode === 'manual' ? 'default' : 'outline'" :disabled="busy" @click="act({ action: 'set_mode', mode: 'manual' })">
                 Manual
               </Button>
@@ -223,6 +228,13 @@ function stepClass(step: StepDef) {
               Selesai: {{ currentChannel?.label }}
             </Button>
             <p v-else-if="order.needsMode" class="mt-3 text-sm text-muted-foreground">Pilih pengiriman manual atau otomatis.</p>
+            <IndocoliteShip
+              v-if="order.channel === 'indocolite'"
+              class="mt-3"
+              :order-id="order.id"
+              :manual="order.indocoliteMode === 'manual'"
+              @changed="emit('changed', $event)"
+            />
           </section>
 
           <section>

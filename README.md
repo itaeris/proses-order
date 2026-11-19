@@ -28,6 +28,8 @@ Dua jalur harus selesai:
 
 **Siap pickup** hanya menyala kalau channel sudah ditunjuk, checklist kurir selesai, packing selesai, dan resi sudah divalidasi.
 
+Order Indocolite mode otomatis bisa dibuatkan resi dari panel detail lewat API Pakeet, memakai kurir yang sudah dipilih di Shopify. Channel tidak bisa diganti dari sini. Tombol Manual membuka pilihan channel dan kurir lain. Gudang asal dibaca dari `.env`. Petugas memilih kelurahan bila kode pos punya lebih dari satu. Saldo dompet Pakeet terpotong saat resi dibuat. Pickup tetap tombol terpisah. Berat paket memakai `PAKEET_DEFAULT_WEIGHT_KG` karena Shopify tidak mengirim berat barang.
+
 Order yang lewat batas kirim, atau sudah lebih dari 24 jam dan belum siap pickup, ditandai terlambat. Antrian bawaan menyembunyikan order yang sudah siap pickup.
 
 Nama petugas disimpan di browser, tanpa login. Detail order membuka panel di kanan dan menggeser daftar. Klik di luar panel menutupnya. Klik baris lain di tabel hanya berpindah order.

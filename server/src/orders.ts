@@ -214,7 +214,7 @@ export async function summary() {
   return { unclaimed, awaitingAwb, overdue, readyToday, queue, byChannel, active: orders.length }
 }
 
-async function touch(id: string, fields: Partial<ProcessRow>) {
+export async function touch(id: string, fields: Partial<ProcessRow>) {
   const current = await getJoined(id)
   if (!current) throw new ClientError('Order tidak ditemukan')
   const next: ProcessRow = {
@@ -285,24 +285,40 @@ export async function applyAction(id: string, body: ActionBody): Promise<OrderVi
       throw new ClientError('Channel tidak dikenal')
     }
     if (row.channel === channel) return toView(await requireOrder(id))
+    if (row.delivery_method && row.indocolite_mode !== 'manual') {
+      throw new ClientError('Metode kirim sudah dipilih di Shopify. Ganti kurir hanya lewat Manual.')
+    }
     await touch(id, {
       channel,
       channel_locked: 1,
-      indocolite_mode: null,
+      indocolite_mode: row.indocolite_mode === 'manual' ? 'manual' : null,
       channel_step: 'antrian',
       channel_done: 0,
       awb_validated_at: null,
       awb_validated_by: null,
     })
   } else if (action === 'set_mode') {
-    if (row.channel !== 'indocolite') throw new ClientError('Mode ini hanya untuk Indocolite')
     if (body.mode !== 'manual' && body.mode !== 'otomatis') throw new ClientError('Pilih manual atau otomatis')
-    if (row.indocolite_mode === body.mode) return toView(row)
-    await touch(id, {
-      indocolite_mode: body.mode,
-      channel_step: 'antrian',
-      channel_done: 0,
-    })
+    if (body.mode === 'manual') {
+      if (row.indocolite_mode === 'manual') return toView(row)
+      await touch(id, {
+        indocolite_mode: 'manual',
+        channel_locked: 1,
+        ...(row.channel === 'indocolite' ? { channel_step: 'antrian', channel_done: 0 } : {}),
+      })
+    } else {
+      const suggested = suggestChannel(row.shipping_country, row.delivery_method, await getRules())
+      const channel = suggested === 'unassigned' ? row.channel : suggested
+      const nextMode = channel === 'indocolite' ? 'otomatis' : null
+      if (row.channel === channel && row.indocolite_mode === nextMode) return toView(row)
+      await touch(id, {
+        channel,
+        channel_locked: row.delivery_method && suggested !== 'unassigned' ? 0 : row.channel_locked,
+        indocolite_mode: nextMode,
+        channel_step: 'antrian',
+        channel_done: 0,
+      })
+    }
   } else if (action === 'advance_channel') {
     if (row.channel === 'unassigned') throw new ClientError('Pilih channel kurir dulu')
     if (row.channel === 'indocolite' && row.indocolite_mode !== 'manual' && row.indocolite_mode !== 'otomatis') {

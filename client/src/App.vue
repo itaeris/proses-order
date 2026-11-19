@@ -7,7 +7,6 @@ import RoutingPanel from '@/components/RoutingPanel.vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Toaster } from '@/components/ui/sonner'
@@ -55,6 +54,7 @@ const channelTone: Record<ChannelId, string> = {
 watch(staff, (value) => localStorage.setItem('proses-order-staff', value))
 
 let timer = 0
+let loadSeq = 0
 watch([q, channel, warehouse, awb, overdueOnly, unclaimedOnly, view], () => {
   window.clearTimeout(timer)
   timer = window.setTimeout(() => void load(), 200)
@@ -65,6 +65,7 @@ async function loadStatus() {
 }
 
 async function load(silent = false) {
+  const seq = ++loadSeq
   const params = new URLSearchParams()
   if (q.value.trim()) params.set('q', q.value.trim())
   if (channel.value !== 'all') params.set('channel', channel.value)
@@ -74,18 +75,30 @@ async function load(silent = false) {
   if (unclaimedOnly.value) params.set('unclaimed', '1')
   params.set('view', view.value === 'routing' ? 'active' : view.value)
   if (!silent) loading.value = true
+  const attempts = silent ? 1 : 3
+  let lastError: unknown
   try {
-    const data = await api<{ orders: OrderView[]; summary: Summary }>(`/api/orders?${params}`)
-    orders.value = data.orders
-    summary.value = data.summary
-    if (selectedId.value) {
-      const fresh = data.orders.find((order) => order.id === selectedId.value)
-      if (fresh) pinned.value = fresh
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      try {
+        const data = await api<{ orders: OrderView[]; summary: Summary }>(`/api/orders?${params}`)
+        if (seq !== loadSeq) return
+        orders.value = data.orders
+        summary.value = data.summary
+        if (selectedId.value) {
+          const fresh = data.orders.find((order) => order.id === selectedId.value)
+          if (fresh) pinned.value = fresh
+        }
+        return
+      } catch (error) {
+        lastError = error
+        if (seq !== loadSeq || attempt === attempts - 1) break
+        await new Promise((resolve) => window.setTimeout(resolve, 600 * (attempt + 1)))
+      }
     }
-  } catch (error) {
-    toast.error(error instanceof Error ? error.message : 'Gagal memuat antrian')
+    if (seq !== loadSeq) return
+    toast.error(lastError instanceof Error ? lastError.message : 'Gagal memuat antrian')
   } finally {
-    if (!silent) loading.value = false
+    if (!silent && seq === loadSeq) loading.value = false
   }
 }
 
@@ -154,9 +167,9 @@ onUnmounted(() => window.clearInterval(poll))
 <template>
   <div class="flex h-dvh overflow-hidden">
     <Toaster position="top-right" />
-    <ScrollArea type="always" class="h-full min-h-0 min-w-0 flex-1" @click="onMainClick">
-    <header class="sticky top-0 z-30 border-b bg-background/95 backdrop-blur">
-      <div class="mx-auto flex max-w-[1400px] flex-wrap items-center gap-3 px-4 py-3">
+    <div class="flex h-full min-h-0 min-w-0 flex-1 flex-col" @click="onMainClick">
+    <header class="shrink-0 border-b bg-background">
+      <div class="flex flex-wrap items-center gap-3 px-4 py-3">
         <div class="mr-auto">
           <p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">Gudang</p>
           <h1 class="text-lg font-semibold leading-none">Proses order</h1>
@@ -175,7 +188,7 @@ onUnmounted(() => window.clearInterval(poll))
       </div>
     </header>
 
-    <main class="mx-auto max-w-[1400px] space-y-4 px-4 py-4">
+    <main class="flex min-h-0 w-full flex-1 flex-col gap-4 px-4 py-4">
       <div v-if="status?.usingSample" class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
         Shopify belum terhubung. Ini data contoh. Isi <span class="font-mono">.env</span> lalu segarkan untuk menarik order sungguhan.
       </div>
@@ -183,7 +196,7 @@ onUnmounted(() => window.clearInterval(poll))
         {{ status.lastError }}
       </div>
 
-      <p class="text-xs leading-relaxed text-muted-foreground">
+      <p class="shrink-0 text-xs leading-relaxed text-muted-foreground">
         Antrian ini mengikuti filter order di Shopify:
         <span class="font-medium text-foreground">Fulfillment Unfulfilled</span>
         (termasuk Partial),
@@ -191,7 +204,7 @@ onUnmounted(() => window.clearInterval(poll))
         <span class="font-medium text-foreground">Payment Paid</span>.
       </p>
 
-      <section class="grid grid-cols-2 gap-2 md:grid-cols-5">
+      <section class="grid shrink-0 grid-cols-2 gap-2 md:grid-cols-5">
         <button type="button" class="cursor-pointer rounded-xl border bg-card px-3 py-3 text-left shadow-xs" @click="preset('unclaimed')">
           <p class="text-xs text-muted-foreground">Belum diklaim</p>
           <Skeleton v-if="!summary" class="mt-2 h-8 w-12" />
@@ -224,7 +237,7 @@ onUnmounted(() => window.clearInterval(poll))
         </button>
       </section>
 
-      <Tabs :model-value="view" @update:model-value="view = String($event)">
+      <Tabs class="shrink-0" :model-value="view" @update:model-value="view = String($event)">
         <TabsList>
           <TabsTrigger value="active">Antrian {{ summary?.queue ?? '' }}</TabsTrigger>
           <TabsTrigger value="awaiting_awb">Menunggu resi</TabsTrigger>
@@ -233,20 +246,22 @@ onUnmounted(() => window.clearInterval(poll))
         </TabsList>
       </Tabs>
 
-      <RoutingPanel v-if="view === 'routing'" />
+      <div v-if="view === 'routing'" class="min-h-0 flex-1 overflow-auto">
+        <RoutingPanel />
+      </div>
 
-      <section v-else class="rounded-xl border bg-card shadow-xs">
-        <div class="flex flex-wrap items-center gap-2 border-b p-3">
+      <section v-else class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border bg-card shadow-xs">
+        <div class="flex shrink-0 flex-wrap items-center gap-2 border-b p-3">
           <div class="relative min-w-56 flex-1">
             <SearchIcon class="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input v-model="q" placeholder="Cari nomor order, pelanggan, atau resi" class="pl-8" />
           </div>
           <Select v-model="channel">
             <SelectTrigger class="min-w-40 bg-background">
-              <SelectValue placeholder="Semua channel" />
+              <SelectValue placeholder="Semua ekspedisi" />
             </SelectTrigger>
             <SelectContent position="popper">
-              <SelectItem value="all">Semua channel</SelectItem>
+              <SelectItem value="all">Semua ekspedisi</SelectItem>
               <SelectItem value="indocolite">Indocolite {{ summary?.byChannel.indocolite ?? 0 }}</SelectItem>
               <SelectItem value="biteship">Biteship {{ summary?.byChannel.biteship ?? 0 }}</SelectItem>
               <SelectItem value="dhl">DHL {{ summary?.byChannel.dhl ?? 0 }}</SelectItem>
@@ -255,10 +270,10 @@ onUnmounted(() => window.clearInterval(poll))
           </Select>
           <Select v-model="warehouse">
             <SelectTrigger class="min-w-40 bg-background">
-              <SelectValue placeholder="Semua langkah" />
+              <SelectValue placeholder="Semua proses" />
             </SelectTrigger>
             <SelectContent position="popper">
-              <SelectItem value="all">Semua langkah</SelectItem>
+              <SelectItem value="all">Semua proses</SelectItem>
               <SelectItem value="print_label">Print label</SelectItem>
               <SelectItem value="packing">Packing</SelectItem>
               <SelectItem value="validasi_awb">Validasi resi</SelectItem>
@@ -281,7 +296,8 @@ onUnmounted(() => window.clearInterval(poll))
           </Button>
         </div>
 
-        <Table data-order-table>
+        <div class="min-h-0 flex-1 overflow-auto">
+        <Table data-order-table class="table-fixed">
           <TableHeader>
             <TableRow>
               <TableHead>Order</TableHead>
@@ -346,9 +362,10 @@ onUnmounted(() => window.clearInterval(poll))
             </TableRow>
           </TableBody>
         </Table>
+        </div>
       </section>
     </main>
-    </ScrollArea>
+    </div>
 
     <OrderSheet :order="selected" :staff="staff" @close="selectedId = null" @changed="onChanged" />
   </div>

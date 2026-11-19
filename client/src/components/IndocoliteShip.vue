@@ -198,7 +198,7 @@ function tomorrow() {
 
       <label v-if="!quote.origin && quote.originChoices.length > 1" class="block space-y-1 text-sm">
         <span class="text-muted-foreground">Kelurahan gudang</span>
-        <Select :model-value="quote.origin ? String(quote.origin.id) : undefined" @update:model-value="chooseOrigin">
+        <Select @update:model-value="chooseOrigin">
           <SelectTrigger class="w-full bg-background" @pointerdown="pickingOrigin = true">
             <SelectValue placeholder="Pilih kelurahan" />
           </SelectTrigger>

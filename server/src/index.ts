@@ -18,6 +18,7 @@ import {
   writeSession,
 } from './auth.js'
 import { ensureDatabase, getJoined, getRules, getSyncState } from './db.js'
+import { biteshipBalance, biteshipQuote, createBiteshipShipment, refreshBiteshipShipment } from './biteship.js'
 import {
   createIndocoliteShipment,
   indocoliteQuote,
@@ -32,7 +33,7 @@ import { hasActiveSample } from './store.js'
 import { syncFromShopify, syncInFlight } from './sync.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
-dotenv.config({ path: path.resolve(here, '../../.env') })
+dotenv.config({ path: path.resolve(here, '../../.env'), override: true })
 
 const app = express()
 app.use(express.json())
@@ -253,6 +254,39 @@ app.post('/api/orders/:id/indocolite', async (req, res, next) => {
       return
     }
     throw new ClientError('Aksi Indocolite tidak dikenal')
+  } catch (error) {
+    next(asClient(error))
+  }
+})
+
+app.get('/api/orders/:id/biteship', async (req, res, next) => {
+  try {
+    res.json(await biteshipQuote(req.params.id))
+  } catch (error) {
+    next(asClient(error))
+  }
+})
+
+app.post('/api/orders/:id/biteship', async (req, res, next) => {
+  try {
+    const body = req.body ?? {}
+    const id = req.params.id
+    if (body.action === 'create') {
+      const shipment = await createBiteshipShipment({
+        orderId: id,
+        company: String(body.company ?? ''),
+        serviceCode: String(body.serviceCode ?? ''),
+        cost: Number(body.cost),
+      })
+      res.json({ shipment, order: await currentOrder(id), balance: await biteshipBalance() })
+      return
+    }
+    if (body.action === 'refresh') {
+      const shipment = await refreshBiteshipShipment(id)
+      res.json({ shipment, order: await currentOrder(id), balance: await biteshipBalance() })
+      return
+    }
+    throw new ClientError('Aksi Biteship tidak dikenal')
   } catch (error) {
     next(asClient(error))
   }

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import BiteshipShip from '@/components/BiteshipShip.vue'
 import IndocoliteShip from '@/components/IndocoliteShip.vue'
 import { api } from '@/lib/api'
 import { money, when } from '@/lib/format'
@@ -220,6 +221,13 @@ function stepClass(step: StepDef) {
             <p v-else-if="order.needsMode" class="mt-3 text-sm text-muted-foreground">Pilih pengiriman manual atau otomatis.</p>
             <IndocoliteShip
               v-if="order.channel === 'indocolite'"
+              class="mt-3"
+              :order-id="order.id"
+              :manual="order.indocoliteMode === 'manual'"
+              @changed="emit('changed', $event)"
+            />
+            <BiteshipShip
+              v-if="order.channel === 'biteship'"
               class="mt-3"
               :order-id="order.id"
               :manual="order.indocoliteMode === 'manual'"

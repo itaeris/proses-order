@@ -1,6 +1,6 @@
 # Proses order
 
-Dashboard antrian gudang untuk order Shopify yang sudah dibayar dan belum terpenuhi. Order dikelompokkan ke Indocolite, Biteship, atau DHL. Label, packing, dan validasi resi dicatat di sini. Aplikasi ini tidak membuat resi, tidak membayar kurir, dan tidak mencetak label lewat API. Itu tetap dikerjakan di Shopify atau aplikasi kurir.
+Dashboard antrian gudang untuk order Shopify yang sudah dibayar dan belum terpenuhi. Order dikelompokkan ke Indocolite, Biteship, atau DHL. Label, packing, dan validasi resi dicatat di sini. Resi Indocolite dan Biteship bisa dibuat dari halaman order. DHL tetap dikerjakan di luar aplikasi ini.
 
 Kurir tidak boleh ditandai siap pickup sebelum checklist kurir selesai dan nomor resi divalidasi.
 
@@ -29,6 +29,8 @@ Dua jalur harus selesai:
 **Siap pickup** hanya menyala kalau channel sudah ditunjuk, checklist kurir selesai, packing selesai, dan resi sudah divalidasi.
 
 Order Indocolite mode otomatis bisa dibuatkan resi dari panel detail lewat API Pakeet, memakai kurir yang sudah dipilih di Shopify. Kalau kurir itu tidak ada di Pakeet, petugas memilih salah satu tarif yang tersedia dari dropdown. Channel tidak bisa diganti dari sini. Tombol Manual membuka pilihan channel dan kurir lain. Gudang asal dibaca dari `.env`. Petugas memilih kelurahan bila kode pos punya lebih dari satu. Saldo dompet Pakeet terpotong saat resi dibuat. Pickup tetap tombol terpisah. Berat paket memakai `PAKEET_DEFAULT_WEIGHT_KG` karena Shopify tidak mengirim berat barang.
+
+Order Biteship memakai API yang sama polanya. Ongkir dihitung dari kode pos gudang dan penerima. Kurir mengikuti Shopify. Kalau tarifnya tidak ada, petugas memilih kurir lain dari dropdown, atau menekan Manual. Saldo dompet tampil di panel. Tombol pada tarif membuat resi dan memotong saldo itu. Nomor resi mengisi checklist kurir sampai langkah bayar. Validasi resi di gudang tetap terpisah. Isi `BITESHIP_API_KEY`. Alamat gudang dan berat paket memakai variabel `PAKEET_SENDER_*` dan `PAKEET_DEFAULT_WEIGHT_KG`.
 
 Order yang lewat batas kirim, atau sudah lebih dari 24 jam dan belum siap pickup, ditandai terlambat. Antrian bawaan menyembunyikan order yang sudah siap pickup.
 

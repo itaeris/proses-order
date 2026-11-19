@@ -19,6 +19,7 @@ import {
 } from './auth.js'
 import { ensureDatabase, getJoined, getRules, getSyncState } from './db.js'
 import { biteshipBalance, biteshipQuote, createBiteshipShipment, refreshBiteshipShipment } from './biteship.js'
+import { shipOrders } from './bulk.js'
 import { createDhlShipment, dhlLabel, dhlQuote, refreshDhlShipment } from './dhl.js'
 import {
   createIndocoliteShipment,
@@ -198,6 +199,15 @@ app.get('/api/orders', async (req, res, next) => {
     res.json({ orders: await listOrders(filters), summary: await summary() })
   } catch (error) {
     next(error)
+  }
+})
+
+app.post('/api/orders/bulk-ship', async (req, res, next) => {
+  try {
+    const results = await shipOrders(req.body?.ids)
+    res.json({ results })
+  } catch (error) {
+    next(asClient(error))
   }
 })
 

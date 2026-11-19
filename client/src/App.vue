@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ChevronDownIcon, LogOutIcon, RefreshCwIcon, SearchIcon, SettingsIcon } from '@lucide/vue'
-import { DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuTrigger } from 'reka-ui'
+import { DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle, DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuTrigger } from 'reka-ui'
 import { toast } from 'vue-sonner'
 import LoginPage, { type SessionUser } from '@/components/LoginPage.vue'
 import OrderSheet from '@/components/OrderSheet.vue'
@@ -31,6 +31,10 @@ const summary = ref<Summary | null>(null)
 const status = ref<StatusInfo | null>(null)
 const loading = ref(true)
 const syncing = ref(false)
+const selectedIds = ref<string[]>([])
+const shipOpen = ref(false)
+const shipping = ref(false)
+const shipResult = ref<Array<{ name: string; ok: boolean; awb: string | null; error: string | null }>>([])
 const q = ref('')
 const channel = ref('all')
 const warehouse = ref('all')
@@ -43,6 +47,9 @@ const booting = ref(true)
 const routePath = ref(window.location.pathname)
 const managed = ref<OrderView | null>(null)
 const manageLoading = ref(false)
+
+const allSelected = computed(() => orders.value.length > 0 && orders.value.every((order) => selectedIds.value.includes(order.id)))
+const shipOk = computed(() => shipResult.value.filter((row) => row.ok).length)
 
 const manageCode = computed(() => {
   const match = routePath.value.match(/^\/manage-order\/([^/]+)/)
@@ -152,6 +159,39 @@ function go(url: string) {
   routePath.value = url
 }
 
+function toggleOrder(id: string) {
+  selectedIds.value = selectedIds.value.includes(id)
+    ? selectedIds.value.filter((item) => item !== id)
+    : [...selectedIds.value, id]
+}
+
+function toggleAll() {
+  selectedIds.value = allSelected.value ? [] : orders.value.map((order) => order.id)
+}
+
+function askShip() {
+  shipResult.value = []
+  shipOpen.value = true
+}
+
+async function shipSelected() {
+  shipping.value = true
+  try {
+    const data = await api<{ results: typeof shipResult.value }>('/api/orders/bulk-ship', {
+      method: 'POST',
+      body: JSON.stringify({ ids: selectedIds.value }),
+    })
+    shipResult.value = data.results
+    selectedIds.value = []
+    await load()
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : 'Pengiriman masal gagal')
+    shipOpen.value = false
+  } finally {
+    shipping.value = false
+  }
+}
+
 function openOrder(order: OrderView) {
   manageLoading.value = true
   managed.value = null
@@ -228,6 +268,11 @@ async function logout() {
   user.value = null
   view.value = 'active'
 }
+
+watch(orders, (rows) => {
+  const ids = new Set(rows.map((order) => order.id))
+  selectedIds.value = selectedIds.value.filter((id) => ids.has(id))
+})
 
 watch(manageCode, () => {
   void openManaged()
@@ -458,11 +503,25 @@ onUnmounted(() => {
             Terlambat
           </Button>
         </div>
+        <div v-if="selectedIds.length" class="flex flex-wrap items-center gap-2 border-b bg-muted/40 px-3 py-2">
+          <p class="mr-auto text-sm font-medium">{{ selectedIds.length }} dipilih</p>
+          <Button size="sm" type="button" :disabled="shipping" @click="askShip">Buat resi</Button>
+          <Button size="sm" variant="ghost" type="button" :disabled="shipping" @click="selectedIds = []">Batal</Button>
+        </div>
 
         <div class="min-h-0 flex-1 overflow-auto">
         <Table data-order-table class="table-fixed">
           <TableHeader>
             <TableRow>
+              <TableHead class="w-10">
+                <input
+                  type="checkbox"
+                  class="size-4 cursor-pointer accent-foreground"
+                  :checked="allSelected"
+                  aria-label="Pilih semua order"
+                  @change="toggleAll"
+                />
+              </TableHead>
               <TableHead>Order</TableHead>
               <TableHead>Pelanggan</TableHead>
               <TableHead>Kurir</TableHead>
@@ -474,6 +533,7 @@ onUnmounted(() => {
           </TableHeader>
           <TableBody>
             <TableRow v-for="index in loading ? 8 : 0" :key="`skeleton-${index}`">
+              <TableCell><Skeleton class="size-4" /></TableCell>
               <TableCell><Skeleton class="h-4 w-24" /><Skeleton class="mt-2 h-3 w-16" /></TableCell>
               <TableCell><Skeleton class="h-4 w-32" /><Skeleton class="mt-2 h-3 w-20" /></TableCell>
               <TableCell><Skeleton class="h-4 w-28" /><Skeleton class="mt-2 h-3 w-20" /></TableCell>
@@ -489,6 +549,15 @@ onUnmounted(() => {
               :class="order.overdue ? 'bg-red-50/80 hover:bg-red-50' : ''"
               @click="openOrder(order)"
             >
+              <TableCell @click.stop>
+                <input
+                  type="checkbox"
+                  class="size-4 cursor-pointer accent-foreground"
+                  :checked="selectedIds.includes(order.id)"
+                  :aria-label="`Pilih ${order.name}`"
+                  @change="toggleOrder(order.id)"
+                />
+              </TableCell>
               <TableCell>
                 <p class="font-mono font-bold">{{ order.name }}</p>
                 <p class="text-xs text-muted-foreground">{{ age(order.createdAt) }} · {{ order.itemCount }} item</p>
@@ -519,7 +588,7 @@ onUnmounted(() => {
               <TableCell>{{ order.assignee || '—' }}</TableCell>
             </TableRow>
             <TableRow v-if="!loading && orders.length === 0">
-              <TableCell colspan="7" class="py-10 text-center text-muted-foreground">
+              <TableCell colspan="8" class="py-10 text-center text-muted-foreground">
                 Tidak ada order di tampilan ini.
               </TableCell>
             </TableRow>
@@ -528,6 +597,39 @@ onUnmounted(() => {
         </div>
       </section>
     </main>
+    <DialogRoot :open="shipOpen" @update:open="(open) => { if (!shipping) shipOpen = open }">
+      <DialogPortal>
+        <DialogOverlay class="fixed inset-0 z-50 bg-black/40" />
+        <DialogContent class="fixed top-1/2 left-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl border bg-card p-4 shadow-lg">
+          <template v-if="shipResult.length === 0">
+            <DialogTitle class="text-base font-semibold">Buat resi {{ selectedIds.length }} order?</DialogTitle>
+            <DialogDescription class="mt-1 text-sm text-muted-foreground">
+              Tarif termurah dipakai. Saldo Indocolite dan Biteship terpotong, dan akun DHL dibuatkan kiriman. Order tetap di antrian untuk cetak label, packing, lalu cek resi.
+            </DialogDescription>
+            <div class="mt-4 flex justify-end gap-2">
+              <Button variant="outline" type="button" :disabled="shipping" @click="shipOpen = false">Batal</Button>
+              <Button type="button" :disabled="shipping" @click="shipSelected">{{ shipping ? 'Membuat resi…' : 'Buat resi' }}</Button>
+            </div>
+          </template>
+          <template v-else>
+            <DialogTitle class="text-base font-semibold">{{ shipOk }} resi dibuat</DialogTitle>
+            <DialogDescription class="mt-1 text-sm text-muted-foreground">
+              Order yang berhasil tetap di antrian. Langkah berikutnya cetak label dan packing. Siap pickup menyala setelah resi dicek.
+            </DialogDescription>
+            <ul class="mt-3 max-h-64 space-y-2 overflow-auto text-sm">
+              <li v-for="row in shipResult" :key="row.id">
+                <p class="font-medium">{{ row.name }}</p>
+                <p v-if="row.ok" class="font-mono text-xs text-muted-foreground">{{ row.awb || 'Resi sudah ada' }}</p>
+                <p v-else class="text-xs text-rose-800">{{ row.error }}</p>
+              </li>
+            </ul>
+            <div class="mt-4 flex justify-end">
+              <Button type="button" @click="shipOpen = false">Tutup</Button>
+            </div>
+          </template>
+        </DialogContent>
+      </DialogPortal>
+    </DialogRoot>
     </div>
   </div>
 </template>

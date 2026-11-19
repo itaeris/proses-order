@@ -168,6 +168,17 @@ export async function setSetting(key: string, value: string) {
   fail(error)
 }
 
+export async function deleteSetting(key: string) {
+  const { error } = await supabase.from('app_settings').delete().eq('key', key)
+  fail(error)
+}
+
+export async function listSettings(prefix: string): Promise<Array<{ key: string; value: string }>> {
+  const { data, error } = await supabase.from('app_settings').select('key,value').like('key', `${prefix}%`)
+  fail(error)
+  return data ?? []
+}
+
 export async function getSyncState(): Promise<SyncState> {
   const { data, error } = await supabase
     .from('sync_state')

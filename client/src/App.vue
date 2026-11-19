@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { RefreshCwIcon, SearchIcon } from '@lucide/vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { ChevronDownIcon, LogOutIcon, RefreshCwIcon, SearchIcon, SettingsIcon } from '@lucide/vue'
+import { DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuTrigger } from 'reka-ui'
 import { toast } from 'vue-sonner'
+import LoginPage, { type SessionUser } from '@/components/LoginPage.vue'
 import OrderSheet from '@/components/OrderSheet.vue'
 import RoutingPanel from '@/components/RoutingPanel.vue'
+import SettingsPanel from '@/components/SettingsPanel.vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,7 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Toaster } from '@/components/ui/sonner'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { api } from '@/lib/api'
+import { ApiError, api } from '@/lib/api'
 import { age, money, when } from '@/lib/format'
 import {
   CHANNEL_LABEL,
@@ -35,13 +38,22 @@ const awb = ref('all')
 const overdueOnly = ref(false)
 const unclaimedOnly = ref(false)
 const view = ref('active')
-const selectedId = ref<string | null>(null)
-const pinned = ref<OrderView | null>(null)
-const staff = ref(localStorage.getItem('proses-order-staff') ?? '')
+const user = ref<SessionUser | null>(null)
+const booting = ref(true)
+const routePath = ref(window.location.pathname)
+const managed = ref<OrderView | null>(null)
+const manageLoading = ref(false)
 
-const selected = computed(() => {
-  if (!selectedId.value) return null
-  return orders.value.find((order) => order.id === selectedId.value) ?? pinned.value
+const manageCode = computed(() => {
+  const match = routePath.value.match(/^\/manage-order\/([^/]+)/)
+  return match ? decodeURIComponent(match[1]) : ''
+})
+
+const initials = computed(() => {
+  const parts = (user.value?.name ?? '').trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return '?'
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
 })
 
 const channelTone: Record<ChannelId, string> = {
@@ -50,8 +62,6 @@ const channelTone: Record<ChannelId, string> = {
   dhl: 'bg-amber-100 text-amber-950',
   unassigned: 'bg-rose-100 text-rose-950',
 }
-
-watch(staff, (value) => localStorage.setItem('proses-order-staff', value))
 
 let timer = 0
 let loadSeq = 0
@@ -73,7 +83,7 @@ async function load(silent = false) {
   if (awb.value !== 'all') params.set('awb', awb.value)
   if (overdueOnly.value) params.set('overdue', '1')
   if (unclaimedOnly.value) params.set('unclaimed', '1')
-  params.set('view', view.value === 'routing' ? 'active' : view.value)
+  params.set('view', view.value === 'routing' || view.value === 'settings' ? 'active' : view.value)
   if (!silent) loading.value = true
   const attempts = silent ? 1 : 3
   let lastError: unknown
@@ -84,12 +94,17 @@ async function load(silent = false) {
         if (seq !== loadSeq) return
         orders.value = data.orders
         summary.value = data.summary
-        if (selectedId.value) {
-          const fresh = data.orders.find((order) => order.id === selectedId.value)
-          if (fresh) pinned.value = fresh
+        const code = manageCode.value.toLowerCase()
+        if (code) {
+          const fresh = data.orders.find((order) => order.name.replace(/^#/, '').toLowerCase() === code)
+          if (fresh) managed.value = fresh
         }
         return
       } catch (error) {
+        if (error instanceof ApiError && error.status === 401) {
+          user.value = null
+          return
+        }
         lastError = error
         if (seq !== loadSeq || attempt === attempts - 1) break
         await new Promise((resolve) => window.setTimeout(resolve, 600 * (attempt + 1)))
@@ -127,21 +142,50 @@ function preset(next: string) {
   view.value = next === 'ready' ? 'ready' : next === 'awb' ? 'awaiting_awb' : 'active'
 }
 
-function openOrder(order: OrderView) {
-  selectedId.value = order.id
-  pinned.value = order
+function orderCode(order: OrderView) {
+  return order.name.replace(/^#/, '')
 }
 
-function onMainClick(event: MouseEvent) {
-  if (!selectedId.value) return
-  const target = event.target
-  if (!(target instanceof Element)) return
-  if (target.closest('[data-order-table]')) return
-  selectedId.value = null
+function go(url: string) {
+  if (window.location.pathname === url) return
+  history.pushState({}, '', url)
+  routePath.value = url
+}
+
+function openOrder(order: OrderView) {
+  manageLoading.value = true
+  managed.value = null
+  go(`/manage-order/${encodeURIComponent(orderCode(order))}`)
+}
+
+function goHome() {
+  go('/')
+}
+
+async function openManaged() {
+  const code = manageCode.value
+  if (!code || !user.value) return
+  manageLoading.value = true
+  await nextTick()
+  const known = orders.value.find((order) => orderCode(order).toLowerCase() === code.toLowerCase())
+  if (known) {
+    managed.value = known
+    manageLoading.value = false
+    return
+  }
+  try {
+    const data = await api<{ orders: OrderView[] }>(`/api/orders?q=${encodeURIComponent(code)}&view=all_active`)
+    managed.value = data.orders.find((order) => orderCode(order).toLowerCase() === code.toLowerCase()) ?? null
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) user.value = null
+    managed.value = null
+  } finally {
+    manageLoading.value = false
+  }
 }
 
 function onChanged(order: OrderView) {
-  pinned.value = order
+  managed.value = order
   const index = orders.value.findIndex((item) => item.id === order.id)
   if (index >= 0) orders.value[index] = order
   void load()
@@ -154,30 +198,69 @@ function currentStep(order: OrderView) {
 }
 
 let poll = 0
-onMounted(async () => {
-  await Promise.all([load(), loadStatus()])
+
+function startPolling() {
+  window.clearInterval(poll)
   poll = window.setInterval(() => {
     void load(true)
     void loadStatus()
   }, 20000)
+}
+
+async function enter(account: SessionUser) {
+  user.value = account
+  await Promise.all([load(), loadStatus()])
+  startPolling()
+}
+
+async function logout() {
+  try {
+    await api('/api/logout', { method: 'POST' })
+  } catch {
+    // Sesi lokal tetap ditutup.
+  }
+  window.clearInterval(poll)
+  user.value = null
+  view.value = 'active'
+}
+
+watch(manageCode, () => {
+  void openManaged()
 })
-onUnmounted(() => window.clearInterval(poll))
+
+function onPopState() {
+  routePath.value = window.location.pathname
+}
+
+onMounted(async () => {
+  window.addEventListener('popstate', onPopState)
+  try {
+    await enter(await api<SessionUser>('/api/me'))
+    if (manageCode.value) await openManaged()
+  } catch {
+    user.value = null
+  } finally {
+    booting.value = false
+  }
+})
+onUnmounted(() => {
+  window.clearInterval(poll)
+  window.removeEventListener('popstate', onPopState)
+})
 </script>
 
 <template>
-  <div class="flex h-dvh overflow-hidden">
+  <LoginPage v-if="!booting && !user" @ready="enter" />
+  <div v-else class="flex h-dvh overflow-hidden">
     <Toaster position="top-right" />
-    <div class="flex h-full min-h-0 min-w-0 flex-1 flex-col" @click="onMainClick">
+    <div v-if="booting" class="flex flex-1 items-center justify-center text-sm text-muted-foreground">Loading...</div>
+    <div v-else class="flex h-full min-h-0 min-w-0 flex-1 flex-col">
     <header class="shrink-0 border-b bg-background">
       <div class="flex flex-wrap items-center gap-3 px-4 py-3">
         <div class="mr-auto">
           <p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">Gudang</p>
           <h1 class="text-lg font-semibold leading-none">Proses order</h1>
         </div>
-        <label class="flex items-center gap-2 text-sm">
-          <span class="text-muted-foreground">Petugas</span>
-          <Input v-model="staff" placeholder="Nama" class="h-8 w-36" />
-        </label>
         <p v-if="status?.lastSyncAt" class="text-xs text-muted-foreground">
           Sync {{ when(status.lastSyncAt) }}
         </p>
@@ -185,10 +268,76 @@ onUnmounted(() => window.clearInterval(poll))
           <RefreshCwIcon :class="syncing ? 'animate-spin' : ''" />
           Segarkan
         </Button>
+        <DropdownMenuRoot>
+          <DropdownMenuTrigger
+            class="flex cursor-pointer items-center gap-2 rounded-full border bg-card py-1 pr-2 pl-1 text-sm outline-none hover:bg-muted"
+          >
+            <span class="flex size-7 items-center justify-center rounded-full bg-foreground text-xs font-medium text-background">
+              {{ initials }}
+            </span>
+            <span class="max-w-32 truncate font-medium">{{ user?.name }}</span>
+            <ChevronDownIcon class="size-4 text-muted-foreground" />
+          </DropdownMenuTrigger>
+          <DropdownMenuPortal>
+            <DropdownMenuContent
+              align="end"
+              :side-offset="8"
+              class="z-50 min-w-40 rounded-lg border bg-popover p-1 text-popover-foreground shadow-md"
+            >
+              <DropdownMenuItem
+                class="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none data-[highlighted]:bg-muted"
+                @select="view = view === 'settings' ? 'active' : 'settings'"
+              >
+                <SettingsIcon class="size-4" />
+                Pengaturan
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                class="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none data-[highlighted]:bg-muted"
+                @select="logout"
+              >
+                <LogOutIcon class="size-4" />
+                Keluar
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenuPortal>
+        </DropdownMenuRoot>
       </div>
     </header>
 
-    <main class="flex min-h-0 w-full flex-1 flex-col gap-4 px-4 py-4">
+    <main v-if="view === 'settings'" class="flex min-h-0 w-full flex-1 px-4 py-4">
+      <SettingsPanel class="min-h-0 flex-1" :admin="user?.role === 'admin'" :account="user" @back="view = 'active'" @updated="user = $event" />
+    </main>
+
+    <main v-else-if="manageCode" class="flex min-h-0 w-full flex-1 flex-col">
+      <div v-if="manageLoading && !managed" class="flex min-h-0 flex-1 flex-col">
+        <div class="flex items-center justify-between gap-3 border-b px-4 py-4">
+          <div>
+            <Skeleton class="h-6 w-36" />
+            <Skeleton class="mt-2 h-4 w-64" />
+          </div>
+          <Skeleton class="h-8 w-24" />
+        </div>
+        <div class="grid gap-6 px-4 py-4 lg:grid-cols-2">
+          <div class="space-y-4">
+            <Skeleton class="h-24 w-full" />
+            <Skeleton class="h-28 w-full" />
+            <Skeleton class="h-14 w-full" />
+          </div>
+          <div class="space-y-4">
+            <Skeleton class="h-44 w-full" />
+            <Skeleton class="h-44 w-full" />
+            <Skeleton class="h-28 w-full" />
+          </div>
+        </div>
+      </div>
+      <div v-else-if="!managed" class="space-y-3 p-4">
+        <Button variant="outline" size="sm" type="button" @click="goHome">Antrian</Button>
+        <p class="text-sm text-muted-foreground">Order {{ manageCode }} tidak ditemukan.</p>
+      </div>
+      <OrderSheet v-else :order="managed" @close="goHome" @changed="onChanged" />
+    </main>
+
+    <main v-else class="flex min-h-0 w-full flex-1 flex-col gap-4 px-4 py-4">
       <div v-if="status?.usingSample" class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
         Shopify belum terhubung. Ini data contoh. Isi <span class="font-mono">.env</span> lalu segarkan untuk menarik order sungguhan.
       </div>
@@ -366,7 +515,5 @@ onUnmounted(() => window.clearInterval(poll))
       </section>
     </main>
     </div>
-
-    <OrderSheet :order="selected" :staff="staff" @close="selectedId = null" @changed="onChanged" />
   </div>
 </template>

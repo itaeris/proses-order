@@ -25,11 +25,11 @@ async function run(): Promise<number> {
     const syncRun = `shopify-${Date.now()}`
     await saveOrders(orders, syncRun)
     await deactivateMissing(syncRun)
-    setSyncState({ last_sync_at: new Date().toISOString(), last_error: null, last_count: orders.length })
+    await setSyncState({ last_sync_at: new Date().toISOString(), last_error: null, last_count: orders.length })
     return orders.length
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Sync Shopify gagal'
-    setSyncState({ last_error: message })
+    await setSyncState({ last_error: message })
     throw error
   }
 }

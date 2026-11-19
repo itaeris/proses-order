@@ -14,11 +14,13 @@ import { cn } from 'cn'
 import { Toaster as Sonner } from 'vue-sonner'
 
 const props = defineProps<ToasterProps>()
-const delegatedProps = reactiveOmit(props, 'class', 'toastOptions')
+const delegatedProps = reactiveOmit(props, 'class', 'toastOptions', 'closeButton', 'closeButtonPosition')
 </script>
 
 <template>
   <Sonner
+    :close-button="props.closeButton ?? true"
+    :close-button-position="props.closeButtonPosition ?? 'top-right'"
     :class="cn('toaster group', props.class)"
     :style="{
       '--normal-bg': 'var(--popover)',
@@ -56,7 +58,7 @@ const delegatedProps = reactiveOmit(props, 'class', 'toastOptions')
       </div>
     </template>
     <template #close-icon>
-      <XIcon class="size-4" />
+      <XIcon class="size-3" />
     </template>
   </Sonner>
 </template>

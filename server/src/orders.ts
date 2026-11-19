@@ -270,13 +270,13 @@ export interface ActionBody {
   note?: string
 }
 
-export async function applyAction(id: string, body: ActionBody): Promise<OrderView> {
+export async function applyAction(id: string, body: ActionBody, actor = ''): Promise<OrderView> {
   const row = await requireOrder(id)
   const action = body.action
+  const name = actor.trim()
   if (action === 'claim') {
-    const assignee = (body.assignee ?? '').trim()
-    if (!assignee) throw new ClientError('Isi nama petugas')
-    await touch(id, { assignee })
+    if (!name) throw new ClientError('Masuk dulu')
+    await touch(id, { assignee: name })
   } else if (action === 'release') {
     await touch(id, { assignee: null })
   } else if (action === 'set_channel') {
@@ -365,11 +365,10 @@ export async function applyAction(id: string, body: ActionBody): Promise<OrderVi
     }
     const awb = (body.awbNumber ?? '').trim()
     if (!awb) throw new ClientError('Nomor resi wajib diisi')
-    const by = (body.by ?? row.assignee ?? '').trim() || null
     await touch(id, {
       awb_number: awb,
       awb_validated_at: new Date().toISOString(),
-      awb_validated_by: by,
+      awb_validated_by: name || null,
       warehouse_step: 'validasi_awb',
     })
   } else if (action === 'revoke_awb') {

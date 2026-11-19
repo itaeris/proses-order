@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { CheckIcon, XIcon } from '@lucide/vue'
+import { ArrowLeftIcon, CheckIcon } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -14,7 +14,6 @@ import { CHANNEL_LABEL, type ChannelId, type OrderView, type StepDef } from '@/l
 
 const props = defineProps<{
   order: OrderView | null
-  staff: string
 }>()
 
 const emit = defineEmits<{
@@ -72,19 +71,11 @@ async function act(body: Record<string, unknown>, success?: string) {
 }
 
 function claim() {
-  const assignee = props.staff.trim()
-  if (!assignee) {
-    toast.error('Isi nama petugas di pojok kanan atas')
-    return
-  }
-  void act({ action: 'claim', assignee }, `Order diklaim ${assignee}`)
+  void act({ action: 'claim' }, 'Order diklaim')
 }
 
 function validateAwb() {
-  void act(
-    { action: 'validate_awb', awbNumber: awbDraft.value, by: props.staff.trim() },
-    'Resi divalidasi',
-  )
+  void act({ action: 'validate_awb', awbNumber: awbDraft.value }, 'Resi divalidasi')
 }
 
 const channelTone: Record<ChannelId, string> = {
@@ -102,13 +93,9 @@ function stepClass(step: StepDef) {
 </script>
 
 <template>
-  <aside
-    class="h-dvh shrink-0 overflow-hidden bg-background transition-[width] duration-200 ease-out"
-    :class="order ? 'w-screen border-l md:w-96' : 'w-0'"
-  >
-    <div v-if="order" class="flex h-full w-screen flex-col md:w-96">
-      <header class="shrink-0 border-b px-5 py-4">
-        <div class="flex items-start justify-between gap-3">
+  <div v-if="order" class="flex min-h-0 flex-1 flex-col bg-background">
+      <header class="shrink-0 border-b px-4 py-4">
+        <div class="flex flex-wrap items-start justify-between gap-3">
           <div class="min-w-0">
             <div class="flex flex-wrap items-center gap-2">
               <h2 class="font-mono text-lg font-semibold">{{ order.name }}</h2>
@@ -119,15 +106,16 @@ function stepClass(step: StepDef) {
               {{ order.customerName }} · {{ money(order.totalAmount, order.currency) }} · {{ order.itemCount }} item
             </p>
           </div>
-          <Button variant="ghost" size="icon-sm" type="button" @click="emit('close')">
-            <XIcon />
-            <span class="sr-only">Tutup</span>
+          <Button variant="outline" size="sm" type="button" @click="emit('close')">
+            <ArrowLeftIcon />
+            Antrian
           </Button>
         </div>
       </header>
 
       <ScrollArea type="always" class="min-h-0 flex-1">
-      <div class="space-y-6 px-5 py-5">
+      <div class="grid gap-6 px-4 py-4 lg:grid-cols-2">
+        <div class="space-y-6">
           <section class="grid gap-3 text-sm sm:grid-cols-2">
             <div>
               <p class="text-muted-foreground">Metode kirim</p>
@@ -171,18 +159,20 @@ function stepClass(step: StepDef) {
             <Button v-else size="sm" type="button" :disabled="busy" @click="claim">Klaim</Button>
           </section>
 
+        </div>
+        <div class="space-y-6">
           <section>
             <div class="flex items-center justify-between">
               <h3 class="text-sm font-semibold">Channel kurir</h3>
               <Button
-                v-if="!order.channelDone && order.channel !== 'unassigned'"
+                v-if="order.channel !== 'unassigned' && (order.channelDone || order.channelSteps.some((step) => step.state === 'done'))"
                 variant="ghost"
                 size="sm"
                 type="button"
                 :disabled="busy"
                 @click="act({ action: 'retreat_channel' })"
               >
-                Kembali
+                Langkah sebelumnya
               </Button>
             </div>
             <p v-if="order.deliveryMethod" class="mt-2 text-sm">
@@ -248,7 +238,7 @@ function stepClass(step: StepDef) {
                 :disabled="busy"
                 @click="act({ action: 'retreat_warehouse' })"
               >
-                Kembali
+                Langkah sebelumnya
               </Button>
             </div>
             <ol class="mt-3 space-y-2">
@@ -324,8 +314,8 @@ function stepClass(step: StepDef) {
               Simpan catatan
             </Button>
           </section>
+        </div>
       </div>
       </ScrollArea>
-    </div>
-  </aside>
+  </div>
 </template>

@@ -56,12 +56,21 @@ function tokenErrorMessage(raw: string, body: { error?: string; error_descriptio
   return `Shopify menolak kredensial (${detail}).`
 }
 
+function networkError(error: unknown) {
+  if (!(error instanceof TypeError) || error.message !== 'fetch failed') return error
+  const cause = error.cause
+  const code = cause && typeof cause === 'object' && 'code' in cause ? String(cause.code) : ''
+  return new Error(code ? `Shopify tidak terjangkau (${code}). Coba segarkan lagi.` : 'Shopify tidak terjangkau. Coba segarkan lagi.')
+}
+
 export async function accessToken() {
   const { shop, clientId, clientSecret, staticToken } = shopifyConfig()
   if (staticToken) return staticToken
   if (cachedToken && Date.now() < tokenExpiresAt - 60_000) return cachedToken
 
-  const response = await fetch(`https://${shop}/admin/oauth/access_token`, {
+  let response: Response
+  try {
+    response = await fetch(`https://${shop}/admin/oauth/access_token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
@@ -70,6 +79,9 @@ export async function accessToken() {
       client_secret: clientSecret,
     }),
   })
+  } catch (error) {
+    throw networkError(error)
+  }
   const raw = await response.text()
   const body = parseTokenBody(raw)
   if (!response.ok || !body.access_token) {
@@ -207,14 +219,19 @@ async function graphql(
   variables: { cursor: string | null },
 ): Promise<{ orders: NormalizedOrder[]; hasNextPage: boolean; endCursor: string | null }> {
   const { shop, version } = shopifyConfig()
-  const response = await fetch(`https://${shop}/admin/api/${version}/graphql.json`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Shopify-Access-Token': await accessToken(),
-    },
-    body: JSON.stringify({ query, variables }),
-  })
+  let response: Response
+  try {
+    response = await fetch(`https://${shop}/admin/api/${version}/graphql.json`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Shopify-Access-Token': await accessToken(),
+      },
+      body: JSON.stringify({ query, variables }),
+    })
+  } catch (error) {
+    throw networkError(error)
+  }
   if (!response.ok) {
     const text = await response.text()
     throw new Error(`Shopify menolak permintaan (${response.status}). ${text.slice(0, 180)}`)
@@ -248,7 +265,7 @@ export async function fetchUnfulfilledOrders(): Promise<NormalizedOrder[]> {
         break
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        if (/throttled/i.test(message) && attempt < 3) {
+        if (/throttled|tidak terjangkau|fetch failed/i.test(message) && attempt < 3) {
           await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)))
           continue
         }

@@ -2,6 +2,21 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import dotenv from 'dotenv'
 import express, { type NextFunction, type Request, type Response } from 'express'
+import {
+  AuthError,
+  changePassword,
+  clearSession,
+  createUser,
+  currentUser,
+  ensureAdmin,
+  listUsers,
+  login,
+  logout,
+  signedIn,
+  updateProfile,
+  updateUser,
+  writeSession,
+} from './auth.js'
 import { ensureDatabase, getJoined, getRules, getSyncState } from './db.js'
 import {
   createIndocoliteShipment,
@@ -27,6 +42,7 @@ let databaseReady: Promise<void> | null = null
 function whenDatabaseReady() {
   if (!databaseReady) {
     databaseReady = ensureDatabase()
+      .then(() => ensureAdmin())
       .then(() => {
         startWork()
       })
@@ -41,6 +57,110 @@ function whenDatabaseReady() {
 app.use((req, _res, next) => {
   if (!req.path.startsWith('/api')) return next()
   whenDatabaseReady().then(() => next(), next)
+})
+
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api')) return next()
+  if (req.path === '/api/login' && req.method === 'POST') return next()
+  if (req.path === '/api/sync' && req.method === 'GET') return next()
+  currentUser(req).then((user) => {
+    if (!user) {
+      next(new AuthError('Masuk dulu'))
+      return
+    }
+    res.locals.user = user
+    next()
+  }, next)
+})
+
+app.post('/api/login', async (req, res, next) => {
+  try {
+    const remember = req.body?.remember === true
+    const result = await login(String(req.body?.email ?? ''), String(req.body?.password ?? ''), remember)
+    writeSession(res, result.token, remember)
+    res.json(result.user)
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.post('/api/logout', async (req, res, next) => {
+  try {
+    await logout(readCookie(req, 'proses_session'))
+    clearSession(res)
+    res.json({ ok: true })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.get('/api/me', (_req, res) => {
+  res.json(signedIn(res))
+})
+
+app.post('/api/account/profile', async (req, res, next) => {
+  try {
+    const user = signedIn(res)
+    const nextUser = await updateProfile(user.email, {
+      name: String(req.body?.name ?? ''),
+      email: String(req.body?.email ?? ''),
+      phone: String(req.body?.phone ?? ''),
+    })
+    res.locals.user = nextUser
+    res.json(nextUser)
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.post('/api/account/password', async (req, res, next) => {
+  try {
+    const user = signedIn(res)
+    await changePassword(user.email, String(req.body?.currentPassword ?? ''), String(req.body?.nextPassword ?? ''))
+    res.json({ ok: true })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.get('/api/users', async (_req, res, next) => {
+  try {
+    if (signedIn(res).role !== 'admin') throw new ClientError('Hanya admin yang bisa melihat pengguna')
+    res.json(await listUsers())
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.post('/api/users/update', async (req, res, next) => {
+  try {
+    const actor = signedIn(res)
+    if (actor.role !== 'admin') throw new ClientError('Hanya admin yang bisa mengubah pengguna')
+    const nextUser = await updateUser(String(req.body?.currentEmail ?? ''), {
+      name: String(req.body?.name ?? ''),
+      email: String(req.body?.email ?? ''),
+      phone: String(req.body?.phone ?? ''),
+      role: String(req.body?.role ?? ''),
+      password: String(req.body?.password ?? ''),
+    })
+    if (actor.email === String(req.body?.currentEmail ?? '').trim().toLowerCase()) res.locals.user = nextUser
+    res.json(nextUser)
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.post('/api/users', async (req, res, next) => {
+  try {
+    if (signedIn(res).role !== 'admin') throw new ClientError('Hanya admin yang bisa menambah pengguna')
+    res.json(await createUser({
+      email: String(req.body?.email ?? ''),
+      name: String(req.body?.name ?? ''),
+      password: String(req.body?.password ?? ''),
+    }))
+  } catch (error) {
+    next(error)
+  }
 })
 
 app.get('/api/status', async (_req, res, next) => {
@@ -81,7 +201,7 @@ app.get('/api/orders', async (req, res, next) => {
 
 app.post('/api/orders/:id/actions', async (req, res, next) => {
   try {
-    const order = await applyAction(req.params.id, req.body ?? {})
+    const order = await applyAction(req.params.id, req.body ?? {}, signedIn(res).name)
     res.json({ order })
   } catch (error) {
     next(error)
@@ -181,7 +301,7 @@ if (!onVercel) {
 
 app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
   const message = error instanceof Error ? error.message : 'Terjadi kesalahan'
-  const status = error instanceof ClientError || /belum diatur/i.test(message) ? 400 : 500
+  const status = error instanceof AuthError ? 401 : error instanceof ClientError || /belum diatur/i.test(message) ? 400 : 500
   if (status === 500) console.error(error)
   res.status(status).json({ error: message })
 })
@@ -217,6 +337,16 @@ export default app
 
 function stringQuery(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+function readCookie(req: Request, name: string) {
+  const header = req.headers.cookie
+  if (!header) return ''
+  for (const part of header.split(';')) {
+    const [key, ...rest] = part.trim().split('=')
+    if (key === name) return decodeURIComponent(rest.join('='))
+  }
+  return ''
 }
 
 async function currentOrder(id: string) {

@@ -32,7 +32,7 @@ Order Indocolite mode otomatis bisa dibuatkan resi dari panel detail lewat API P
 
 Order yang lewat batas kirim, atau sudah lebih dari 24 jam dan belum siap pickup, ditandai terlambat. Antrian bawaan menyembunyikan order yang sudah siap pickup.
 
-Nama petugas disimpan di browser, tanpa login. Detail order membuka panel di kanan dan menggeser daftar. Klik di luar panel menutupnya. Klik baris lain di tabel hanya berpindah order.
+Antrian hanya terbuka setelah masuk. Admin pertama adalah `it@aerisbeaute.com`. Nama, email, nomor, dan kata sandi bisa diganti dari menu Pengaturan, dan admin bisa menambah serta mengubah pengguna dari menu yang sama. Nama petugas mengikuti akun yang sedang masuk. Klaim order dan validasi resi tercatat atas nama itu. Klik baris order membuka halaman `/manage-order` untuk order itu, bukan panel samping.
 
 ## Menjalankan
 

@@ -30,15 +30,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T
 }
 
-export async function api<T>(path: string, init?: RequestInit): Promise<T> {
+export async function api<T>(path: string, init?: RequestInit, options?: { fresh?: boolean }): Promise<T> {
   if (methodOf(init) !== 'GET') {
     const result = await request<T>(path, init)
     epoch += 1
     fresh.clear()
     return result
   }
-  const hit = fresh.get(path)
-  if (hit && Date.now() - hit.at < FRESH_MS) return hit.body as T
+  if (!options?.fresh) {
+    const hit = fresh.get(path)
+    if (hit && Date.now() - hit.at < FRESH_MS) return hit.body as T
+  }
   const flight = flights.get(path)
   if (flight) return flight as Promise<T>
   const seen = epoch

@@ -91,7 +91,7 @@ async function loadStatus() {
   status.value = await api<StatusInfo>('/api/status')
 }
 
-async function load(silent = false) {
+async function load(silent = false, fresh = false) {
   const seq = ++loadSeq
   const params = new URLSearchParams()
   if (q.value.trim()) params.set('q', q.value.trim())
@@ -107,7 +107,7 @@ async function load(silent = false) {
   try {
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       try {
-        const data = await api<{ orders: OrderView[]; summary: Summary }>(`/api/orders?${params}`)
+        const data = await api<{ orders: OrderView[]; summary: Summary }>(`/api/orders?${params}`, undefined, { fresh })
         if (seq !== loadSeq) return
         orders.value = data.orders
         summary.value = data.summary
@@ -210,6 +210,31 @@ function openOrder(order: OrderView) {
 
 function goHome() {
   go('/')
+}
+
+let queuePull = 0
+
+async function pullQueue() {
+  const token = ++queuePull
+  syncing.value = true
+  void load(true, true)
+  let signedOut = false
+  try {
+    if (status.value?.shopifyConfigured) await api('/api/sync', { method: 'POST' })
+  } catch (error) {
+    signedOut = error instanceof ApiError && error.status === 401
+  }
+  if (signedOut) {
+    user.value = null
+    syncing.value = false
+    return
+  }
+  if (token !== queuePull) return
+  try {
+    await Promise.all([load(true, true), loadStatus()])
+  } finally {
+    if (token === queuePull) syncing.value = false
+  }
 }
 
 function openSettings() {
@@ -351,6 +376,13 @@ watch(orders, (rows) => {
 
 watch(manageCode, () => {
   void openManaged()
+})
+
+watch(routePath, (path, previous) => {
+  if (!previous || !user.value) return
+  const home = path === '/' || path === ''
+  const leftDetail = previous.startsWith('/manage-order') || /^\/settings\/?$/.test(previous)
+  if (home && leftDetail) void pullQueue()
 })
 
 function onPopState() {

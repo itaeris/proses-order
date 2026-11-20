@@ -592,7 +592,18 @@ onUnmounted(() => {
         </div>
 
         <div class="min-h-0 flex-1 overflow-auto">
-        <Table data-order-table class="table-fixed">
+        <Table data-order-table class="min-w-[64rem] table-fixed">
+          <colgroup>
+            <col class="w-[4%]" />
+            <col class="w-[10%]" />
+            <col class="w-[11%]" />
+            <col class="w-[16%]" />
+            <col class="w-[20%]" />
+            <col class="w-[9%]" />
+            <col class="w-[11%]" />
+            <col class="w-[10%]" />
+            <col class="w-[9%]" />
+          </colgroup>
           <TableHeader>
             <TableRow>
               <TableHead class="w-10">
@@ -644,38 +655,40 @@ onUnmounted(() => {
                   @toggle="toggleOrder(order.id)"
                 />
               </TableCell>
-              <TableCell>
-                <p class="font-mono font-bold">{{ order.name }}</p>
-                <p class="text-xs text-muted-foreground">{{ order.itemCount }} item</p>
+              <TableCell class="overflow-hidden">
+                <p class="truncate font-mono font-bold">{{ order.name }}</p>
+                <p class="truncate text-xs text-muted-foreground">{{ order.itemCount }} item</p>
               </TableCell>
-              <TableCell>
-                <p>{{ when(order.createdAt) }}</p>
-                <p class="text-xs text-muted-foreground">{{ age(order.createdAt) }}</p>
+              <TableCell class="overflow-hidden">
+                <p class="truncate">{{ when(order.createdAt) }}</p>
+                <p class="truncate text-xs text-muted-foreground">{{ age(order.createdAt) }}</p>
               </TableCell>
-              <TableCell>
-                <p>{{ order.customerName }}</p>
-                <p class="text-xs text-muted-foreground">{{ money(order.totalAmount, order.currency) }}</p>
+              <TableCell class="overflow-hidden">
+                <p class="truncate" :title="order.customerName || undefined">{{ order.customerName }}</p>
+                <p class="truncate text-xs text-muted-foreground">{{ money(order.totalAmount, order.currency) }}</p>
               </TableCell>
-              <TableCell>
-                <p>{{ order.deliveryMethod || '—' }}</p>
-                <p class="text-xs" :class="order.overdue ? 'text-destructive' : 'text-muted-foreground'">
+              <TableCell class="overflow-hidden">
+                <p class="truncate" :title="order.deliveryMethod || undefined">{{ order.deliveryMethod || '—' }}</p>
+                <p class="truncate text-xs" :class="order.overdue ? 'text-destructive' : 'text-muted-foreground'">
                   {{ order.fulfillBy ? when(order.fulfillBy) : order.shippingCity || '' }}
                 </p>
               </TableCell>
-              <TableCell>
+              <TableCell class="overflow-hidden">
                 <Badge variant="outline" :class="channelTone[order.channel]">{{ CHANNEL_LABEL[order.channel] }}</Badge>
               </TableCell>
-              <TableCell>
-                <p>{{ currentStep(order) }}</p>
-                <p class="text-xs text-muted-foreground">{{ WAREHOUSE_LABEL[order.warehouseStep] }}</p>
+              <TableCell class="overflow-hidden">
+                <p class="truncate" :title="currentStep(order)">{{ currentStep(order) }}</p>
+                <p class="truncate text-xs text-muted-foreground">{{ WAREHOUSE_LABEL[order.warehouseStep] }}</p>
               </TableCell>
-              <TableCell>
-                <p class="font-mono text-xs">{{ order.awbNumber || '—' }}</p>
-                <p v-if="order.awbValidatedAt" class="text-xs text-emerald-800">Tervalidasi</p>
-                <p v-else-if="order.awbNumber" class="text-xs text-amber-800">Belum dicek</p>
-                <p v-else-if="order.problemNote" class="text-xs text-destructive">Ada catatan</p>
+              <TableCell class="overflow-hidden">
+                <p class="truncate font-mono text-xs" :title="order.awbNumber || undefined">{{ order.awbNumber || '—' }}</p>
+                <p v-if="order.awbValidatedAt" class="truncate text-xs text-emerald-800">Tervalidasi</p>
+                <p v-else-if="order.awbNumber" class="truncate text-xs text-amber-800">Belum dicek</p>
+                <p v-else-if="order.problemNote" class="truncate text-xs text-destructive">Ada catatan</p>
               </TableCell>
-              <TableCell>{{ order.assignee || '—' }}</TableCell>
+              <TableCell class="overflow-hidden">
+                <p class="truncate" :title="order.assignee || undefined">{{ order.assignee || '—' }}</p>
+              </TableCell>
             </TableRow>
             <TableRow v-if="!loading && orders.length === 0">
               <TableCell colspan="9" class="py-10 text-center text-muted-foreground">

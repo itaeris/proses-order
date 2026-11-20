@@ -116,12 +116,15 @@ function stepClass(step: StepDef) {
           <Button v-if="order.assignee" variant="outline" size="sm" type="button" :disabled="busy" @click="act({ action: 'release' })">
             Kosongkan
           </Button>
-          <Button v-else size="sm" type="button" :disabled="busy" @click="claim">Proses</Button>
+          <Button v-else type="button" :disabled="busy" @click="claim">Proses</Button>
         </div>
       </header>
 
       <ScrollArea type="always" class="min-h-0 flex-1">
       <div class="grid items-start gap-4 px-4 py-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
+        <p v-if="!order.assignee" class="text-sm text-muted-foreground xl:col-span-2">
+          Tekan Proses dulu. Label, packing, resi, dan catatan belum bisa diubah.
+        </p>
         <div class="space-y-4">
           <div class="grid gap-4 md:grid-cols-2">
             <section class="rounded-xl border bg-card p-4 shadow-xs">
@@ -172,7 +175,7 @@ function stepClass(step: StepDef) {
             </p>
           </section>
 
-          <section class="rounded-xl border bg-card p-4 shadow-xs">
+          <section class="rounded-xl border bg-card p-4 shadow-xs" :class="order.assignee ? '' : 'opacity-50'" :inert="!order.assignee">
             <div class="flex items-center justify-between gap-2">
               <h3 class="text-sm font-semibold">1. Gudang</h3>
               <Button
@@ -253,7 +256,7 @@ function stepClass(step: StepDef) {
             </p>
           </section>
 
-          <section class="rounded-xl border bg-card p-4 shadow-xs">
+          <section class="rounded-xl border bg-card p-4 shadow-xs" :class="order.assignee ? '' : 'opacity-50'" :inert="!order.assignee">
             <div class="flex items-center justify-between gap-2">
               <h3 class="text-sm font-semibold">2. Kurir</h3>
               <Button
@@ -357,7 +360,7 @@ function stepClass(step: StepDef) {
               </div>
             </dl>
           </section>
-          <section class="space-y-2 rounded-xl border bg-card p-4 shadow-xs">
+          <section class="space-y-2 rounded-xl border bg-card p-4 shadow-xs" :class="order.assignee ? '' : 'opacity-50'" :inert="!order.assignee">
             <h3 class="text-sm font-semibold">Catatan</h3>
             <Textarea v-model="problemDraft" placeholder="Isi kalau ada masalah. Kosongkan kalau tidak ada." />
             <Button variant="outline" type="button" :disabled="busy" @click="act({ action: 'set_problem', note: problemDraft }, 'Catatan disimpan')">

@@ -251,6 +251,7 @@ export async function createBiteshipShipment(input: {
   cost: number
 }) {
   const order = await requireBiteship(input.orderId)
+  if (!order.assignee) throw new ClientError('Tekan Proses dulu')
   const existing = await loadShipment(order.id)
   if (existing?.awb || (existing?.orderId && existing.status !== 'cancelled' && existing.status !== 'rejected')) {
     throw new ClientError('Pengiriman untuk order ini sudah dibuat')

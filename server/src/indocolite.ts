@@ -177,6 +177,7 @@ export async function createIndocoliteShipment(input: {
   cost: number
 }) {
   const order = await requireIndocolite(input.orderId)
+  if (!order.assignee) throw new ClientError('Tekan Proses dulu')
   const existing = await loadShipment(input.orderId)
   if (existing && existing.status !== 'failed') {
     const settled = existing.awb ? existing : await settle(input.orderId, existing)
@@ -383,6 +384,7 @@ export async function refreshIndocoliteShipment(orderId: string) {
 
 export async function requestIndocolitePickup(input: { orderId: string; date: string; time: string; vehicle: string }) {
   const order = await requireIndocolite(input.orderId)
+  if (!order.assignee) throw new ClientError('Tekan Proses dulu')
   const record = await loadShipment(input.orderId)
   if (!record?.shipmentId) throw new ClientError('Resi belum selesai dibuat')
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) throw new ClientError('Tanggal pickup tidak valid')

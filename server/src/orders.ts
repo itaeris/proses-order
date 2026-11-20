@@ -279,6 +279,8 @@ export async function applyAction(id: string, body: ActionBody, actor = ''): Pro
     await touch(id, { assignee: name })
   } else if (action === 'release') {
     await touch(id, { assignee: null })
+  } else if (!row.assignee) {
+    throw new ClientError('Tekan Proses dulu')
   } else if (action === 'set_channel') {
     const channel = body.channel
     if (channel !== 'indocolite' && channel !== 'biteship' && channel !== 'dhl') {

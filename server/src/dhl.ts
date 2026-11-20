@@ -301,6 +301,7 @@ export async function dhlQuote(orderId: string): Promise<DhlQuote> {
 
 export async function createDhlShipment(input: { orderId: string; productCode: string; cost: number }) {
   const order = await requireDhl(input.orderId)
+  if (!order.assignee) throw new ClientError('Tekan Proses dulu')
   const existing = await loadShipment(order.id)
   if (existing?.awb) throw new ClientError('Pengiriman untuk order ini sudah dibuat')
   const quote = await dhlQuote(order.id)

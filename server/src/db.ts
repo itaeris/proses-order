@@ -3,6 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import dotenv from 'dotenv'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { dropCache, readCache, remember, writeCache } from './cache.js'
 import { DEFAULT_RULES, type RoutingRule } from './flow.js'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
@@ -126,25 +127,37 @@ function flatten(row: Record<string, unknown>): JoinedRow | null {
   }
 }
 
+const ORDER_TTL = 4_000
+const SETTING_TTL = 20_000
+
+function settingKey(key: string) {
+  return `setting:${key}`
+}
+
 export async function listJoined(): Promise<JoinedRow[]> {
-  const { data, error } = await supabase.from('orders').select(joinedSelect).limit(5000)
-  fail(error)
-  return (data ?? []).map((row) => flatten(row as Record<string, unknown>)).filter((row): row is JoinedRow => row !== null)
+  return remember('orders:list', ORDER_TTL, async () => {
+    const { data, error } = await supabase.from('orders').select(joinedSelect).limit(5000)
+    fail(error)
+    return (data ?? []).map((row) => flatten(row as Record<string, unknown>)).filter((row): row is JoinedRow => row !== null)
+  })
 }
 
 export async function getJoined(id: string): Promise<JoinedRow | undefined> {
-  const { data, error } = await supabase.from('orders').select(joinedSelect).eq('id', id).maybeSingle()
-  fail(error)
-  if (!data) return undefined
-  return flatten(data as Record<string, unknown>) ?? undefined
+  const listed = readCache<JoinedRow[]>('orders:list')?.find((row) => row.id === id)
+  if (listed) return listed
+  return remember(`orders:one:${id}`, ORDER_TTL, async () => {
+    const { data, error } = await supabase.from('orders').select(joinedSelect).eq('id', id).maybeSingle()
+    fail(error)
+    if (!data) return undefined
+    return flatten(data as Record<string, unknown>) ?? undefined
+  })
 }
 
 export async function getRules(): Promise<RoutingRule[]> {
-  const { data, error } = await supabase.from('app_settings').select('value').eq('key', 'routing_rules').maybeSingle()
-  fail(error)
-  if (!data?.value) return DEFAULT_RULES
+  const raw = await getSetting('routing_rules')
+  if (!raw) return DEFAULT_RULES
   try {
-    const parsed = JSON.parse(data.value) as RoutingRule[]
+    const parsed = JSON.parse(raw) as RoutingRule[]
     if (!Array.isArray(parsed)) return DEFAULT_RULES
     return parsed
   } catch {
@@ -153,24 +166,27 @@ export async function getRules(): Promise<RoutingRule[]> {
 }
 
 export async function saveRules(rules: RoutingRule[]) {
-  const { error } = await supabase.from('app_settings').upsert({ key: 'routing_rules', value: JSON.stringify(rules) })
-  fail(error)
+  await setSetting('routing_rules', JSON.stringify(rules))
 }
 
 export async function getSetting(key: string): Promise<string | null> {
-  const { data, error } = await supabase.from('app_settings').select('value').eq('key', key).maybeSingle()
-  fail(error)
-  return data?.value ?? null
+  return remember(settingKey(key), SETTING_TTL, async () => {
+    const { data, error } = await supabase.from('app_settings').select('value').eq('key', key).maybeSingle()
+    fail(error)
+    return data?.value ?? null
+  })
 }
 
 export async function setSetting(key: string, value: string) {
   const { error } = await supabase.from('app_settings').upsert({ key, value })
   fail(error)
+  writeCache(settingKey(key), value, SETTING_TTL)
 }
 
 export async function deleteSetting(key: string) {
   const { error } = await supabase.from('app_settings').delete().eq('key', key)
   fail(error)
+  dropCache(settingKey(key))
 }
 
 export async function listSettings(prefix: string): Promise<Array<{ key: string; value: string }>> {
@@ -180,28 +196,31 @@ export async function listSettings(prefix: string): Promise<Array<{ key: string;
 }
 
 export async function getSyncState(): Promise<SyncState> {
-  const { data, error } = await supabase
-    .from('sync_state')
-    .select('last_sync_at, last_error, last_count')
-    .eq('id', 1)
-    .maybeSingle()
-  fail(error)
-  return {
-    last_sync_at: data?.last_sync_at ?? null,
-    last_error: data?.last_error ?? null,
-    last_count: data?.last_count ?? null,
-  }
+  return remember('sync:state', ORDER_TTL, async () => {
+    const { data, error } = await supabase
+      .from('sync_state')
+      .select('last_sync_at, last_error, last_count')
+      .eq('id', 1)
+      .maybeSingle()
+    fail(error)
+    return {
+      last_sync_at: data?.last_sync_at ?? null,
+      last_error: data?.last_error ?? null,
+      last_count: data?.last_count ?? null,
+    }
+  })
 }
 
 export async function setSyncState(patch: Partial<SyncState>) {
   const current = await getSyncState()
-  const { error } = await supabase.from('sync_state').upsert({
-    id: 1,
+  const next: SyncState = {
     last_sync_at: patch.last_sync_at === undefined ? current.last_sync_at : patch.last_sync_at,
     last_error: patch.last_error === undefined ? current.last_error : patch.last_error,
     last_count: patch.last_count === undefined ? current.last_count : patch.last_count,
-  })
+  }
+  const { error } = await supabase.from('sync_state').upsert({ id: 1, ...next })
   fail(error)
+  writeCache('sync:state', next, ORDER_TTL)
 }
 
 export async function updateProcess(row: ProcessRow) {
@@ -224,12 +243,14 @@ export async function updateProcess(row: ProcessRow) {
     })
     .eq('order_id', row.order_id)
   fail(error)
+  dropCache('orders:')
 }
 
 export async function upsertOrders(rows: Array<Record<string, unknown>>) {
   if (rows.length === 0) return
   const { error } = await supabase.from('orders').upsert(rows, { onConflict: 'id' })
   fail(error)
+  dropCache('orders:')
 }
 
 export async function existingProcessIds(ids: string[]): Promise<Set<string>> {
@@ -248,6 +269,7 @@ export async function insertProcessRows(rows: ProcessRow[]) {
   if (rows.length === 0) return
   const { error } = await supabase.from('order_process').insert(rows)
   fail(error)
+  dropCache('orders:')
 }
 
 export async function deactivateOtherRuns(syncRun: string) {
@@ -256,6 +278,7 @@ export async function deactivateOtherRuns(syncRun: string) {
     .update({ active: 0, updated_at: new Date().toISOString() })
     .or(`sync_run.is.null,sync_run.neq.${syncRun}`)
   fail(error)
+  dropCache('orders:')
 }
 
 export async function countOrders(): Promise<number> {

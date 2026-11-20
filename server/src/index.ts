@@ -196,7 +196,8 @@ app.get('/api/orders', async (req, res, next) => {
       unclaimed: req.query.unclaimed === '1',
       view: stringQuery(req.query.view),
     }
-    res.json({ orders: await listOrders(filters), summary: await summary() })
+    const [orders, totals] = await Promise.all([listOrders(filters), summary()])
+    res.json({ orders, summary: totals })
   } catch (error) {
     next(error)
   }

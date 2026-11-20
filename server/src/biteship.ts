@@ -1,3 +1,4 @@
+import { dropCache, remember as cached } from './cache.js'
 import { getJoined, getSetting, setSetting, type JoinedRow } from './db.js'
 import { ClientError, touch } from './orders.js'
 
@@ -209,17 +210,20 @@ export async function biteshipQuote(orderId: string): Promise<BiteshipQuote> {
   const to = parseAddress(order.shipping_address)
   if (!/^\d{5}$/.test(to.zip)) throw new ClientError('Kode pos penerima tidak terbaca dari alamat Shopify')
   const kg = weightKg()
+  const rateKey = `biteship:rates:${from.postalCode}:${to.zip}:${kg}:${Math.round(Number(order.total_amount ?? 0))}`
   const [body, balance] = await Promise.all([
-    call('/v1/rates/couriers', {
-      method: 'POST',
-      body: JSON.stringify({
-        origin_postal_code: Number(from.postalCode),
-        destination_postal_code: Number(to.zip),
-        couriers: COURIERS,
-        items: [parcel(order, kg)],
+    cached(rateKey, 45_000, () =>
+      call('/v1/rates/couriers', {
+        method: 'POST',
+        body: JSON.stringify({
+          origin_postal_code: Number(from.postalCode),
+          destination_postal_code: Number(to.zip),
+          couriers: COURIERS,
+          items: [parcel(order, kg)],
+        }),
       }),
-    }),
-    biteshipBalance(),
+    ),
+    cached('biteship:balance', 10_000, () => biteshipBalance()),
   ])
   const rates = readRates(body)
   const shopifyRates = matchingRates(order.delivery_method, rates)
@@ -287,6 +291,7 @@ export async function createBiteshipShipment(input: {
       items: [parcel(order, quote.weightKg)],
     }),
   })
+  dropCache('biteship:balance')
   const biteshipId = body.id || body.details?.order_id || null
   if (!biteshipId) throw new ClientError('Biteship tidak mengembalikan nomor order')
   const created = body.id ? body : await call(`/v1/orders/${biteshipId}`)

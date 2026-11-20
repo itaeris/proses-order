@@ -1,3 +1,4 @@
+import { dropCache } from './cache.js'
 import { getJoined, getSetting, setSetting, type JoinedRow } from './db.js'
 import { ClientError, touch } from './orders.js'
 import {
@@ -297,6 +298,7 @@ async function bookIndocolite(orderId: string, input: {
       shopify_order_number: shopifyNumber(input.order.name),
     }),
   })
+  dropCache('pakeet:balance')
   const queued = response.data as { request_id?: string } | undefined
   const requestId = queued?.request_id
   if (!requestId) throw new ClientError('Pakeet tidak mengembalikan nomor permintaan')

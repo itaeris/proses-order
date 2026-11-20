@@ -1,3 +1,4 @@
+import { remember as cached } from './cache.js'
 import { getJoined, getSetting, setSetting, type JoinedRow } from './db.js'
 import { ClientError, touch } from './orders.js'
 import { jakartaDate } from './flow.js'
@@ -261,7 +262,8 @@ export async function dhlQuote(orderId: string): Promise<DhlQuote> {
   if (!to.zip) throw new ClientError('Kode pos penerima tidak terbaca dari alamat Shopify')
   const kg = weightKg()
   const customs = to.country !== 'ID'
-  const body = await call('/rates', {
+  const when = shipWhen()
+  const body = await cached(`dhl:rates:${from.postalCode}:${to.country}:${to.zip}:${kg}:${customs}:${when}`, 45_000, () => call('/rates', {
     method: 'POST',
     body: JSON.stringify({
       customerDetails: {
@@ -279,12 +281,12 @@ export async function dhlQuote(orderId: string): Promise<DhlQuote> {
         },
       },
       accounts: [{ typeCode: 'shipper', number: credentials().account }],
-      plannedShippingDateAndTime: shipWhen(),
+      plannedShippingDateAndTime: when,
       unitOfMeasurement: 'metric',
       isCustomsDeclarable: customs,
       packages: [parcel(kg)],
     }),
-  })
+  }))
   const rates = readRates(body)
   return {
     weightKg: kg,

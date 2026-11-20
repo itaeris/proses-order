@@ -1,3 +1,5 @@
+import { remember } from './cache.js'
+
 const base = () => (process.env.PAKEET_API_BASE?.trim() || 'https://app.pakeet.id').replace(/\/$/, '')
 
 export interface PakeetDestination {
@@ -48,14 +50,20 @@ export async function pakeet(path: string, init?: RequestInit): Promise<PakeetBo
 }
 
 export async function pakeetBalance(): Promise<number> {
-  const body = await pakeet('/api/v1/wallet/balance')
-  const data = body.data as { balance?: number } | undefined
-  return Number(data?.balance ?? 0)
+  return remember('pakeet:balance', 10_000, async () => {
+    const body = await pakeet('/api/v1/wallet/balance')
+    const data = body.data as { balance?: number } | undefined
+    return Number(data?.balance ?? 0)
+  })
 }
 
 export async function searchDestinations(keyword: string): Promise<PakeetDestination[]> {
   const query = keyword.trim()
   if (query.length < 2) return []
+  return remember(`pakeet:dest:${query.toLowerCase()}`, 10 * 60_000, () => loadDestinations(query))
+}
+
+async function loadDestinations(query: string): Promise<PakeetDestination[]> {
   const body = await pakeet(`/api/v1/shipping/destination-search?keyword=${encodeURIComponent(query)}`)
   const rows = Array.isArray(body.data) ? body.data : []
   return rows.map((row) => {
@@ -73,6 +81,16 @@ export async function searchDestinations(keyword: string): Promise<PakeetDestina
 }
 
 export async function calculateRates(input: {
+  originId: number
+  destinationId: number
+  weightGrams: number
+  itemValue: number
+}): Promise<PakeetRate[]> {
+  const key = `pakeet:rates:${input.originId}:${input.destinationId}:${input.weightGrams}:${input.itemValue}`
+  return remember(key, 45_000, () => loadRates(input))
+}
+
+async function loadRates(input: {
   originId: number
   destinationId: number
   weightGrams: number

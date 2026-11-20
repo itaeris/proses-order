@@ -30,7 +30,7 @@ import {
   requestIndocolitePickup,
   saveOrigin,
 } from './indocolite.js'
-import { applyAction, claimOrders, ClientError, listOrders, summary, toView, updateRules, validateOrders, type ListFilters } from './orders.js'
+import { applyAction, claimOrders, ClientError, queuePayload, toView, updateRules, validateOrders, type ListFilters } from './orders.js'
 import { seedIfEmpty } from './seed.js'
 import { shopifyConfig } from './shopify.js'
 import { hasActiveSample } from './store.js'
@@ -206,8 +206,7 @@ app.get('/api/orders', async (req, res, next) => {
       unclaimed: req.query.unclaimed === '1',
       view: stringQuery(req.query.view),
     }
-    const [orders, totals] = await Promise.all([listOrders(filters), summary(filters.view || 'active')])
-    res.json({ orders, summary: totals })
+    res.json(await queuePayload(filters))
   } catch (error) {
     next(error)
   }

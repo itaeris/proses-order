@@ -146,10 +146,10 @@ function rank(order: OrderView): number {
   return 4
 }
 
-export async function listOrders(filters: ListFilters): Promise<OrderView[]> {
+export async function listOrders(filters: ListFilters, prepared?: JoinedRow[]): Promise<OrderView[]> {
   const view = filters.view || 'active'
-  const rows = await listJoined()
-  await alignShipped(rows)
+  const rows = prepared ?? (await listJoined())
+  if (!prepared) await alignShipped(rows)
   let orders = rows.map((row) => toView(row))
 
   if (view === 'ready') {
@@ -205,9 +205,19 @@ function inView(order: OrderView, view: string) {
   return order.warehouseStep !== 'siap_pickup'
 }
 
-export async function summary(view = 'active') {
+export async function queuePayload(filters: ListFilters) {
   const rows = await listJoined()
   await alignShipped(rows)
+  const [orders, totals] = await Promise.all([
+    listOrders(filters, rows),
+    summary(filters.view || 'active', rows),
+  ])
+  return { orders, summary: totals }
+}
+
+export async function summary(view = 'active', prepared?: JoinedRow[]) {
+  const rows = prepared ?? (await listJoined())
+  if (!prepared) await alignShipped(rows)
   const orders = rows.map((row) => toView(row)).filter((order) => order.active)
   const byChannel = { indocolite: 0, biteship: 0, dhl: 0, unassigned: 0 }
   let unclaimed = 0
@@ -253,10 +263,11 @@ export async function touch(id: string, fields: Partial<ProcessRow>) {
 }
 
 async function alignShipped(rows: JoinedRow[]) {
-  for (const row of rows) {
-    if (!(row.awb_number ?? '').trim() || row.awb_validated_at) continue
-    const picked = await shipmentPicked(row)
-    const next = nextShippedStep(row.warehouse_step, true, picked)
+  const pending = rows.filter((row) => (row.awb_number ?? '').trim() && !row.awb_validated_at)
+  const picked = await Promise.all(pending.map((row) => shipmentPicked(row)))
+  for (let index = 0; index < pending.length; index += 1) {
+    const row = pending[index]
+    const next = nextShippedStep(row.warehouse_step, true, picked[index])
     if (!next) continue
     await touch(row.id, { warehouse_step: next })
     row.warehouse_step = next

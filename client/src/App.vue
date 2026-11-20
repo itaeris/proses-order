@@ -144,7 +144,8 @@ const channelTone: Record<ChannelId, string> = {
 }
 
 let timer = 0
-let loadSeq = 0
+let dataSeq = 0
+let visibleSeq = 0
 watch([q, channel, warehouse, awb, overdueOnly, unclaimedOnly, view], () => {
   window.clearTimeout(timer)
   timer = window.setTimeout(() => void load(), 200)
@@ -155,7 +156,8 @@ async function loadStatus() {
 }
 
 async function load(silent = false, fresh = false) {
-  const seq = ++loadSeq
+  const seq = ++dataSeq
+  const shown = silent ? 0 : ++visibleSeq
   const params = new URLSearchParams()
   if (q.value.trim()) params.set('q', q.value.trim())
   if (channel.value !== 'all') params.set('channel', channel.value)
@@ -164,20 +166,24 @@ async function load(silent = false, fresh = false) {
   if (overdueOnly.value) params.set('overdue', '1')
   if (unclaimedOnly.value) params.set('unclaimed', '1')
   params.set('view', view.value)
-  if (!silent) loading.value = true
-  const attempts = silent ? 1 : 3
+  if (!silent && orders.value.length === 0) loading.value = true
+  const attempts = silent ? 1 : 2
   let lastError: unknown
   try {
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       try {
-        const data = await api<{ orders: OrderView[]; summary: Summary }>(`/api/orders?${params}`, undefined, { fresh })
-        if (seq !== loadSeq) return
+        const data = await api<{ orders: OrderView[]; summary: Summary }>(
+          `/api/orders?${params}`,
+          { signal: AbortSignal.timeout(20000) },
+          { fresh },
+        )
+        if (seq !== dataSeq) return
         orders.value = data.orders
         summary.value = data.summary
         const code = manageCode.value.toLowerCase()
         if (code && managed.value) {
-          const fresh = data.orders.find((order) => order.name.replace(/^#/, '').toLowerCase() === code)
-          if (fresh) managed.value = fresh
+          const next = data.orders.find((order) => order.name.replace(/^#/, '').toLowerCase() === code)
+          if (next) managed.value = next
         }
         return
       } catch (error) {
@@ -185,15 +191,16 @@ async function load(silent = false, fresh = false) {
           user.value = null
           return
         }
-        lastError = error
-        if (seq !== loadSeq || attempt === attempts - 1) break
+        const timedOut = error instanceof DOMException && error.name === 'TimeoutError'
+        lastError = timedOut ? new Error('Antrian terlalu lama dimuat') : error
+        if (seq !== dataSeq || attempt === attempts - 1) break
         await new Promise((resolve) => window.setTimeout(resolve, 600 * (attempt + 1)))
       }
     }
-    if (seq !== loadSeq) return
+    if (seq !== dataSeq) return
     toast.error(lastError instanceof Error ? lastError.message : 'Gagal memuat antrian')
   } finally {
-    if (!silent && seq === loadSeq) loading.value = false
+    if (shown !== 0 && shown === visibleSeq) loading.value = false
   }
 }
 

@@ -1,5 +1,6 @@
 import { dropCache } from './cache.js'
 import { getJoined, getSetting, setSetting, type JoinedRow } from './db.js'
+import { afterPickup, afterResi } from './flow.js'
 import { ClientError, touch } from './orders.js'
 import {
   calculateRates,
@@ -354,11 +355,14 @@ async function settle(orderId: string, record: ShipmentRecord): Promise<Shipment
       if (!awb) return latest
       latest = { ...latest, status: 'completed', awb }
       await saveShipment(orderId, latest)
+      const joined = await getJoined(orderId)
+      const next = joined ? afterResi(joined.warehouse_step) : null
       await touch(orderId, {
         indocolite_mode: 'otomatis',
         channel_step: 'konfirmasi',
         channel_done: 0,
         awb_number: awb,
+        ...(next ? { warehouse_step: next } : {}),
       })
       return latest
     }
@@ -398,7 +402,12 @@ export async function requestIndocolitePickup(input: { orderId: string; date: st
       pickup_vehicle: input.vehicle,
     }),
   })
-  await touch(order.id, { channel_step: 'konfirmasi', channel_done: 1 })
+  const next = afterPickup(order.warehouse_step)
+  await touch(order.id, {
+    channel_step: 'konfirmasi',
+    channel_done: 1,
+    ...(next ? { warehouse_step: next } : {}),
+  })
   return record
 }
 

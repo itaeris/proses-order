@@ -35,7 +35,28 @@ const syncing = ref(false)
 const selectedIds = ref<string[]>([])
 const shipOpen = ref(false)
 const shipping = ref(false)
-const shipResult = ref<Array<{ id: string; name: string; ok: boolean; awb: string | null; error: string | null }>>([])
+type ShipStatus = 'created' | 'processing' | 'failed'
+interface ShipRow {
+  id: string
+  name: string
+  channel: ChannelId
+  status: ShipStatus
+  awb: string | null
+  courier: string | null
+  detail: string
+}
+
+const SHIP_FLOW: Record<ChannelId, string> = {
+  indocolite:
+    'Tarif termurah. Kalau ekspedisi itu tidak bisa, dipakai ekspedisi berikutnya. Saldo terpotong saat permintaan masuk. Nomor resi sering menyusul: buka order dan tekan Cek status. Jangan buat ulang. Setelah nomor ada: ajukan pickup, form buat kiriman, konfirmasi pengiriman, validasi AWB, lalu siap pickup.',
+  biteship:
+    'Tarif termurah. Saldo terpotong dan nomor resi langsung masuk. Lalu tandai ajukan pickup, form buat kiriman, konfirmasi pengiriman, validasi AWB, dan siap pickup.',
+  dhl:
+    'Produk termurah. Kiriman dibuat di akun DHL dan label PDF ada di halaman order. Lalu tandai ajukan pickup, form buat kiriman, konfirmasi pengiriman, validasi AWB, dan siap pickup.',
+  unassigned: 'Order ini tidak dibuat resinya. Buka order, pilih Indocolite, Biteship, atau DHL, lalu ulangi.',
+}
+
+const shipResult = ref<ShipRow[]>([])
 const q = ref('')
 const channel = ref('all')
 const warehouse = ref('all')
@@ -57,7 +78,24 @@ const queueTabs = computed(() => [
 ])
 const allSelected = computed(() => orders.value.length > 0 && orders.value.every((order) => selectedIds.value.includes(order.id)))
 const someSelected = computed(() => selectedIds.value.length > 0 && !allSelected.value)
-const shipOk = computed(() => shipResult.value.filter((row) => row.ok).length)
+const shipTitle = computed(() => {
+  const created = shipResult.value.filter((row) => row.status === 'created').length
+  const pending = shipResult.value.filter((row) => row.status === 'processing').length
+  if (created && pending) return `${created} resi jadi, ${pending} masih diproses`
+  if (created) return `${created} resi dibuat`
+  if (pending) return `${pending} permintaan masuk, nomor belum keluar`
+  return 'Belum ada resi yang jadi'
+})
+
+function uniqueChannels(rows: Array<{ channel: ChannelId }>) {
+  const present = new Set(rows.map((row) => row.channel))
+  return (['indocolite', 'biteship', 'dhl', 'unassigned'] as const).filter((channel) => present.has(channel))
+}
+
+const selectedChannels = computed(() =>
+  uniqueChannels(orders.value.filter((order) => selectedIds.value.includes(order.id))),
+)
+const resultChannels = computed(() => uniqueChannels(shipResult.value))
 
 const manageCode = computed(() => {
   const match = routePath.value.match(/^\/manage-order\/([^/]+)/)
@@ -187,7 +225,7 @@ function askShip() {
 async function shipSelected() {
   shipping.value = true
   try {
-    const data = await api<{ results: typeof shipResult.value }>('/api/orders/bulk-ship', {
+    const data = await api<{ results: ShipRow[] }>('/api/orders/bulk-ship', {
       method: 'POST',
       body: JSON.stringify({ ids: selectedIds.value }),
     })
@@ -277,8 +315,7 @@ function onChanged(order: OrderView) {
 }
 
 function currentStep(order: OrderView) {
-  if (order.channel === 'unassigned') return 'Pilih kurir'
-  return order.channelSteps.find((step) => step.state === 'current')?.label ?? (order.channelDone ? 'Selesai' : '—')
+  return WAREHOUSE_LABEL[order.warehouseStep]
 }
 
 type SortKey = 'order' | 'entered' | 'customer' | 'courier' | 'channel' | 'step' | 'awb' | 'assignee'
@@ -596,10 +633,7 @@ onUnmounted(() => {
             </SelectTrigger>
             <SelectContent position="popper">
               <SelectItem value="all">Semua proses</SelectItem>
-              <SelectItem value="print_label">Print label</SelectItem>
-              <SelectItem value="packing">Packing</SelectItem>
-              <SelectItem value="validasi_awb">Validasi resi</SelectItem>
-              <SelectItem value="siap_pickup">Siap pickup</SelectItem>
+              <SelectItem v-for="(label, id) in WAREHOUSE_LABEL" :key="id" :value="id">{{ label }}</SelectItem>
             </SelectContent>
           </Select>
           <Select v-model="awb">
@@ -710,7 +744,6 @@ onUnmounted(() => {
               </TableCell>
               <TableCell class="overflow-hidden">
                 <p class="truncate" :title="currentStep(order)">{{ currentStep(order) }}</p>
-                <p class="truncate text-xs text-muted-foreground">{{ WAREHOUSE_LABEL[order.warehouseStep] }}</p>
               </TableCell>
               <TableCell class="overflow-hidden">
                 <p class="truncate font-mono text-xs" :title="order.awbNumber || undefined">{{ order.awbNumber || '—' }}</p>
@@ -735,27 +768,39 @@ onUnmounted(() => {
     <DialogRoot :open="shipOpen" @update:open="(open) => { if (!shipping) shipOpen = open }">
       <DialogPortal>
         <DialogOverlay class="fixed inset-0 z-50 bg-black/40" />
-        <DialogContent class="fixed top-1/2 left-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl border bg-card p-4 shadow-lg">
+        <DialogContent class="fixed top-1/2 left-1/2 z-50 max-h-[85vh] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border bg-card p-4 shadow-lg">
           <template v-if="shipResult.length === 0">
             <DialogTitle class="text-base font-semibold">Buat resi {{ selectedIds.length }} order?</DialogTitle>
             <DialogDescription class="mt-1 text-sm text-muted-foreground">
-              Tarif termurah dipakai. Saldo Indocolite dan Biteship terpotong, dan akun DHL dibuatkan kiriman. Order tetap di antrian untuk cetak label, packing, lalu cek resi.
+              Ini hanya membuat resi. Print label, packing, dan kurir di halaman order tidak dilompati. Siap pickup menyala setelah resi divalidasi.
             </DialogDescription>
+            <ul class="mt-3 space-y-2">
+              <li v-for="channel in selectedChannels" :key="channel" class="rounded-lg border px-3 py-2">
+                <p class="text-sm font-medium">{{ CHANNEL_LABEL[channel] }}</p>
+                <p class="mt-1 text-xs leading-relaxed text-muted-foreground">{{ SHIP_FLOW[channel] }}</p>
+              </li>
+            </ul>
             <div class="mt-4 flex justify-end gap-2">
               <Button variant="outline" type="button" :disabled="shipping" @click="shipOpen = false">Batal</Button>
               <Button type="button" :disabled="shipping" @click="shipSelected">{{ shipping ? 'Membuat resi…' : 'Buat resi' }}</Button>
             </div>
           </template>
           <template v-else>
-            <DialogTitle class="text-base font-semibold">{{ shipOk }} resi dibuat</DialogTitle>
+            <DialogTitle class="text-base font-semibold">{{ shipTitle }}</DialogTitle>
             <DialogDescription class="mt-1 text-sm text-muted-foreground">
-              Order yang berhasil tetap di antrian. Langkah berikutnya cetak label dan packing. Siap pickup menyala setelah resi dicek.
+              Order tetap di antrian. Lanjutkan dari langkah yang sekarang di halaman order.
             </DialogDescription>
-            <ul class="mt-3 max-h-64 space-y-2 overflow-auto text-sm">
+            <ul class="mt-3 max-h-52 space-y-2 overflow-auto text-sm">
               <li v-for="row in shipResult" :key="row.id">
-                <p class="font-medium">{{ row.name }}</p>
-                <p v-if="row.ok" class="font-mono text-xs text-muted-foreground">{{ row.awb || 'Resi sudah ada' }}</p>
-                <p v-else class="text-xs text-rose-800">{{ row.error }}</p>
+                <p class="font-medium">{{ row.name }} <span class="font-normal text-muted-foreground">· {{ CHANNEL_LABEL[row.channel] }}</span></p>
+                <p v-if="row.awb" class="font-mono text-xs text-muted-foreground">{{ row.awb }}<span v-if="row.courier"> · {{ row.courier }}</span></p>
+                <p class="text-xs" :class="row.status === 'failed' ? 'text-rose-800' : row.status === 'processing' ? 'text-amber-800' : 'text-muted-foreground'">{{ row.detail }}</p>
+              </li>
+            </ul>
+            <ul class="mt-3 space-y-2">
+              <li v-for="channel in resultChannels" :key="channel" class="rounded-lg bg-muted px-3 py-2">
+                <p class="text-sm font-medium">{{ CHANNEL_LABEL[channel] }}</p>
+                <p class="mt-1 text-xs leading-relaxed text-muted-foreground">{{ SHIP_FLOW[channel] }}</p>
               </li>
             </ul>
             <div class="mt-4 flex justify-end">

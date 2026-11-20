@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { ArrowLeftIcon, CheckIcon } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { Badge } from '@/components/ui/badge'
@@ -45,8 +45,6 @@ watch(
   },
   { immediate: true },
 )
-
-const currentChannel = computed(() => props.order?.channelSteps.find((step) => step.state === 'current'))
 
 function onKey(event: KeyboardEvent) {
   if (event.key === 'Escape' && props.order) emit('close')
@@ -177,7 +175,7 @@ function stepClass(step: StepDef) {
 
           <section class="rounded-xl border bg-card p-4 shadow-xs" :class="order.assignee ? '' : 'opacity-50'" :inert="!order.assignee">
             <div class="flex items-center justify-between gap-2">
-              <h3 class="text-sm font-semibold">1. Gudang</h3>
+              <h3 class="text-sm font-semibold">Proses</h3>
               <Button
                 v-if="order.warehouseStep !== 'print_label'"
                 variant="ghost"
@@ -189,7 +187,7 @@ function stepClass(step: StepDef) {
                 Langkah sebelumnya
               </Button>
             </div>
-            <p class="mt-1 text-xs text-muted-foreground">Cetak label, packing, lalu cek nomor resi.</p>
+            <p class="mt-1 text-xs text-muted-foreground">Satu urutan, dari cetak label sampai paket siap diambil.</p>
             <ol class="mt-3 space-y-2">
               <li v-for="step in order.warehouseSteps" :key="step.id" class="flex items-center gap-2 text-sm">
                 <span class="flex size-5 items-center justify-center rounded-full border" :class="stepClass(step)">
@@ -199,133 +197,112 @@ function stepClass(step: StepDef) {
               </li>
             </ol>
 
-            <div class="mt-3 flex gap-2">
-              <Button
-                v-if="order.warehouseStep === 'print_label'"
-                type="button"
-                :disabled="busy"
-                @click="act({ action: 'advance_warehouse' }, 'Label dicatat')"
-              >
+            <div v-if="order.warehouseStep === 'print_label'" class="mt-3">
+              <Button type="button" :disabled="busy" @click="act({ action: 'advance_warehouse' }, 'Label dicatat')">
                 Label sudah dicetak
               </Button>
-              <Button
-                v-else-if="order.warehouseStep === 'packing'"
-                type="button"
-                :disabled="busy"
-                @click="act({ action: 'advance_warehouse' }, 'Packing selesai')"
-              >
+            </div>
+            <div v-else-if="order.warehouseStep === 'packing'" class="mt-3">
+              <Button type="button" :disabled="busy" @click="act({ action: 'advance_warehouse' }, 'Packing selesai')">
                 Packing selesai
               </Button>
             </div>
-
+            <div v-else-if="order.warehouseStep === 'kurir'" class="mt-3 space-y-2">
+              <p v-if="order.deliveryMethod" class="text-sm font-medium">
+                {{ order.deliveryMethod }}
+                <span class="font-normal text-muted-foreground">· dari Shopify</span>
+              </p>
+              <div v-if="!order.deliveryMethod || order.channel === 'unassigned'" class="flex flex-wrap gap-2">
+                <Button
+                  v-for="channel in (['indocolite', 'biteship', 'dhl'] as const)"
+                  :key="channel"
+                  size="sm"
+                  type="button"
+                  :variant="order.channel === channel ? 'default' : 'outline'"
+                  :disabled="busy"
+                  @click="act({ action: 'set_channel', channel })"
+                >
+                  {{ CHANNEL_LABEL[channel] }}
+                </Button>
+              </div>
+              <Button
+                v-if="order.channel !== 'unassigned'"
+                type="button"
+                :disabled="busy"
+                @click="act({ action: 'advance_warehouse' }, 'Kurir dicatat')"
+              >
+                Kurir ini dipakai
+              </Button>
+            </div>
+            <template v-else-if="order.warehouseStep === 'buat_resi' || order.warehouseStep === 'ajukan_pickup'">
+              <IndocoliteShip
+                v-if="order.channel === 'indocolite'"
+                class="mt-3"
+                :order-id="order.id"
+                @changed="emit('changed', $event)"
+              />
+              <BiteshipShip
+                v-if="order.channel === 'biteship'"
+                class="mt-3"
+                :order-id="order.id"
+                @changed="emit('changed', $event)"
+              />
+              <DhlShip
+                v-if="order.channel === 'dhl'"
+                class="mt-3"
+                :order-id="order.id"
+                @changed="emit('changed', $event)"
+              />
+              <Button
+                v-if="order.warehouseStep === 'buat_resi' && order.awbNumber"
+                class="mt-3"
+                type="button"
+                :disabled="busy"
+                @click="act({ action: 'advance_warehouse' }, 'Lanjut ke ajukan pickup')"
+              >
+                Resi sudah ada, lanjut
+              </Button>
+              <Button
+                v-if="order.warehouseStep === 'ajukan_pickup'"
+                class="mt-3"
+                type="button"
+                :disabled="busy"
+                @click="act({ action: 'advance_warehouse' }, 'Pickup diajukan')"
+              >
+                Pickup diajukan
+              </Button>
+            </template>
+            <div v-else-if="order.warehouseStep === 'form_pengiriman'" class="mt-3">
+              <Button type="button" :disabled="busy" @click="act({ action: 'advance_warehouse' }, 'Form kiriman dicatat')">
+                Form sudah diisi
+              </Button>
+            </div>
+            <div v-else-if="order.warehouseStep === 'konfirmasi'" class="mt-3">
+              <Button type="button" :disabled="busy" @click="act({ action: 'advance_warehouse' }, 'Pengiriman dikonfirmasi')">
+                Pengiriman dikonfirmasi
+              </Button>
+            </div>
             <form
-              v-if="order.warehouseStep === 'validasi_awb' || order.warehouseStep === 'siap_pickup'"
+              v-else-if="order.warehouseStep === 'validasi_awb'"
               class="mt-4 space-y-2"
               @submit.prevent="validateAwb"
             >
               <label class="text-sm font-medium" for="awb">Nomor resi</label>
-              <Input id="awb" v-model="awbDraft" placeholder="Scan atau ketik resi" class="font-mono" :disabled="order.warehouseStep === 'siap_pickup'" />
+              <Input id="awb" v-model="awbDraft" placeholder="Scan atau ketik resi" class="font-mono" />
               <p v-if="order.trackingNumber && !order.awbValidatedAt" class="text-xs text-muted-foreground">
-                Shopify sudah punya resi {{ order.trackingNumber }}. Tetap harus dicek sebelum pickup.
+                Shopify sudah punya resi {{ order.trackingNumber }}. Tetap harus dicek sebelum siap pickup.
+              </p>
+              <p class="text-xs text-muted-foreground">Resi yang cocok membuat order ini siap pickup.</p>
+              <Button type="submit" :disabled="busy">Resi sudah dicek</Button>
+            </form>
+            <div v-else-if="order.warehouseStep === 'siap_pickup'" class="mt-3 space-y-2">
+              <p class="rounded-lg bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-900">
+                Siap pickup. Kurir boleh mengambil paket ini.
               </p>
               <p v-if="order.awbValidatedAt" class="text-xs text-emerald-800">
-                Dicek {{ when(order.awbValidatedAt) }}<span v-if="order.awbValidatedBy"> oleh {{ order.awbValidatedBy }}</span>
+                Resi {{ order.awbNumber }} dicek {{ when(order.awbValidatedAt) }}<span v-if="order.awbValidatedBy"> oleh {{ order.awbValidatedBy }}</span>
               </p>
-              <p v-else-if="order.channelDone" class="text-xs text-muted-foreground">
-                Kurir belum boleh pickup sebelum resi ini dicek.
-              </p>
-              <p v-else class="text-xs text-muted-foreground">
-                Resi bisa dicek sekarang. Siap pickup menyala setelah kurir juga selesai.
-              </p>
-              <div class="flex gap-2">
-                <Button v-if="order.warehouseStep !== 'siap_pickup'" type="submit" :disabled="busy">Resi sudah dicek</Button>
-                <Button
-                  v-if="order.awbValidatedAt"
-                  variant="outline"
-                  type="button"
-                  :disabled="busy"
-                  @click="act({ action: 'revoke_awb' }, 'Pengecekan resi dibatalkan')"
-                >
-                  Batalkan cek
-                </Button>
-              </div>
-            </form>
-
-            <p v-if="order.warehouseStep === 'siap_pickup'" class="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-900">
-              Siap pickup. Kurir boleh mengambil paket ini.
-            </p>
-          </section>
-
-          <section class="rounded-xl border bg-card p-4 shadow-xs" :class="order.assignee ? '' : 'opacity-50'" :inert="!order.assignee">
-            <div class="flex items-center justify-between gap-2">
-              <h3 class="text-sm font-semibold">2. Kurir</h3>
-              <Button
-                v-if="order.channel !== 'unassigned' && (order.channelDone || order.channelSteps.some((step) => step.state === 'done'))"
-                variant="ghost"
-                size="sm"
-                type="button"
-                :disabled="busy"
-                @click="act({ action: 'retreat_channel' })"
-              >
-                Langkah sebelumnya
-              </Button>
             </div>
-            <p class="mt-1 text-xs text-muted-foreground">
-              Buat resi di kartu ini. Centang langkah hanya kalau resinya dikerjakan di luar aplikasi.
-            </p>
-            <p v-if="order.deliveryMethod" class="mt-3 text-sm font-medium">
-              {{ order.deliveryMethod }}
-              <span class="font-normal text-muted-foreground">· dari Shopify</span>
-            </p>
-            <div v-if="!order.deliveryMethod || order.channel === 'unassigned'" class="mt-2 flex flex-wrap gap-2">
-              <Button
-                v-for="channel in (['indocolite', 'biteship', 'dhl'] as const)"
-                :key="channel"
-                size="sm"
-                type="button"
-                :variant="order.channel === channel ? 'default' : 'outline'"
-                :disabled="busy"
-                @click="act({ action: 'set_channel', channel })"
-              >
-                {{ CHANNEL_LABEL[channel] }}
-              </Button>
-            </div>
-            <IndocoliteShip
-              v-if="order.channel === 'indocolite'"
-              class="mt-3"
-              :order-id="order.id"
-              @changed="emit('changed', $event)"
-            />
-            <BiteshipShip
-              v-if="order.channel === 'biteship'"
-              class="mt-3"
-              :order-id="order.id"
-              @changed="emit('changed', $event)"
-            />
-            <DhlShip
-              v-if="order.channel === 'dhl'"
-              class="mt-3"
-              :order-id="order.id"
-              @changed="emit('changed', $event)"
-            />
-            <ol v-if="order.channelSteps.length" class="mt-3 space-y-2">
-              <li v-for="step in order.channelSteps" :key="step.id" class="flex items-center gap-2 text-sm">
-                <span class="flex size-5 items-center justify-center rounded-full border" :class="stepClass(step)">
-                  <CheckIcon v-if="step.state === 'done'" class="size-3" />
-                </span>
-                <span :class="step.state === 'upcoming' ? 'text-muted-foreground' : 'font-medium'">{{ step.label }}</span>
-              </li>
-            </ol>
-            <Button
-              v-if="!order.channelDone && order.channel !== 'unassigned'"
-              class="mt-3"
-              variant="outline"
-              type="button"
-              :disabled="busy"
-              @click="act({ action: 'advance_channel' }, 'Langkah kurir dicatat')"
-            >
-              Tandai {{ currentChannel?.label }} selesai
-            </Button>
           </section>
 
         </div>

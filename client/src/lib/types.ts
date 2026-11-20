@@ -12,7 +12,16 @@ export interface OrderItem {
 }
 
 export type ChannelId = 'indocolite' | 'biteship' | 'dhl' | 'unassigned'
-export type WarehouseStep = 'print_label' | 'packing' | 'validasi_awb' | 'siap_pickup'
+export type WarehouseStep =
+  | 'print_label'
+  | 'packing'
+  | 'kurir'
+  | 'buat_resi'
+  | 'ajukan_pickup'
+  | 'form_pengiriman'
+  | 'konfirmasi'
+  | 'validasi_awb'
+  | 'siap_pickup'
 
 export interface OrderView {
   id: string
@@ -88,7 +97,12 @@ export const CHANNEL_LABEL: Record<ChannelId, string> = {
 
 export const WAREHOUSE_LABEL: Record<WarehouseStep, string> = {
   print_label: 'Print label',
-  packing: 'Packing',
-  validasi_awb: 'Validasi resi',
+  packing: 'Proses packing',
+  kurir: 'Kurir',
+  buat_resi: 'Buat resi',
+  ajukan_pickup: 'Ajukan pickup',
+  form_pengiriman: 'Form buat kiriman',
+  konfirmasi: 'Konfirmasi pengiriman',
+  validasi_awb: 'Validasi AWB',
   siap_pickup: 'Siap pickup',
 }

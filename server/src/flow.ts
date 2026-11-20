@@ -1,7 +1,16 @@
 export type ChannelId = 'indocolite' | 'biteship' | 'dhl' | 'unassigned'
 export type CourierChannel = Exclude<ChannelId, 'unassigned'>
 export type IndocoliteMode = 'manual' | 'otomatis'
-export type WarehouseStep = 'print_label' | 'packing' | 'validasi_awb' | 'siap_pickup'
+export type WarehouseStep =
+  | 'print_label'
+  | 'packing'
+  | 'kurir'
+  | 'buat_resi'
+  | 'ajukan_pickup'
+  | 'form_pengiriman'
+  | 'konfirmasi'
+  | 'validasi_awb'
+  | 'siap_pickup'
 
 export interface RoutingRule {
   match: string
@@ -40,9 +49,22 @@ const DHL: Array<Omit<StepDef, 'state'>> = [
 export const WAREHOUSE_STEPS: Array<Omit<StepDef, 'state'>> = [
   { id: 'print_label', label: 'Print label' },
   { id: 'packing', label: 'Proses packing' },
+  { id: 'kurir', label: 'Kurir' },
+  { id: 'buat_resi', label: 'Buat resi' },
+  { id: 'ajukan_pickup', label: 'Ajukan pickup' },
+  { id: 'form_pengiriman', label: 'Form buat kiriman' },
+  { id: 'konfirmasi', label: 'Konfirmasi pengiriman' },
   { id: 'validasi_awb', label: 'Validasi AWB' },
   { id: 'siap_pickup', label: 'Siap pickup' },
 ]
+
+export function afterResi(current: string): WarehouseStep | null {
+  return current === 'buat_resi' ? 'ajukan_pickup' : null
+}
+
+export function afterPickup(current: string): WarehouseStep | null {
+  return current === 'ajukan_pickup' ? 'form_pengiriman' : null
+}
 
 export function suggestChannel(
   country: string | null,

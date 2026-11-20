@@ -66,8 +66,8 @@ function asChannel(value: string): ChannelId {
 }
 
 function asWarehouse(value: string): WarehouseStep {
-  if (value === 'packing' || value === 'validasi_awb' || value === 'siap_pickup') return value
-  return 'print_label'
+  const known = WAREHOUSE_STEPS.find((step) => step.id === value)
+  return known ? (known.id as WarehouseStep) : 'print_label'
 }
 
 export function toView(row: JoinedRow, now = Date.now()): OrderView {
@@ -239,16 +239,13 @@ export async function touch(id: string, fields: Partial<ProcessRow>) {
 }
 
 function applyReady(row: ProcessRow) {
-  const channelDone = row.channel_done === 1
   const awbOk = !!row.awb_validated_at && !!(row.awb_number ?? '').trim()
-  const packed = row.warehouse_step === 'validasi_awb' || row.warehouse_step === 'siap_pickup'
-  const channelOk = row.channel === 'indocolite' || row.channel === 'biteship' || row.channel === 'dhl'
-  if (channelDone && awbOk && packed && channelOk) {
+  if (awbOk && row.warehouse_step === 'validasi_awb') {
     row.warehouse_step = 'siap_pickup'
     if (!row.ready_at) row.ready_at = new Date().toISOString()
     return
   }
-  if (row.warehouse_step === 'siap_pickup') {
+  if (row.warehouse_step === 'siap_pickup' && !awbOk) {
     row.warehouse_step = 'validasi_awb'
     row.ready_at = null
   }
@@ -298,6 +295,7 @@ export async function applyAction(id: string, body: ActionBody, actor = ''): Pro
       channel_done: 0,
       awb_validated_at: null,
       awb_validated_by: null,
+      ...(asWarehouse(row.warehouse_step) === 'kurir' ? { warehouse_step: 'buat_resi' } : {}),
     })
   } else if (action === 'set_mode') {
     if (body.mode !== 'manual' && body.mode !== 'otomatis') throw new ClientError('Pilih manual atau otomatis')
@@ -342,25 +340,24 @@ export async function applyAction(id: string, body: ActionBody, actor = ''): Pro
       await touch(id, { channel_step: steps[index - 1].id })
     }
   } else if (action === 'advance_warehouse') {
-    if (row.warehouse_step === 'print_label') await touch(id, { warehouse_step: 'packing' })
-    else if (row.warehouse_step === 'packing') await touch(id, { warehouse_step: 'validasi_awb' })
-    else throw new ClientError('Langkah gudang ini tidak bisa dilanjutkan dari sini')
+    const steps = WAREHOUSE_STEPS.map((step) => step.id)
+    const index = steps.indexOf(asWarehouse(row.warehouse_step))
+    if (index < 0 || index >= steps.length - 1) throw new ClientError('Langkah ini tidak bisa dilanjutkan')
+    if (row.warehouse_step === 'kurir' && row.channel === 'unassigned') throw new ClientError('Pilih kurir dulu')
+    await touch(id, { warehouse_step: steps[index + 1] })
   } else if (action === 'retreat_warehouse') {
-    if (row.warehouse_step === 'packing') await touch(id, { warehouse_step: 'print_label' })
-    else if (row.warehouse_step === 'validasi_awb' || row.warehouse_step === 'siap_pickup') {
-      await touch(id, {
-        warehouse_step: 'packing',
-        awb_validated_at: null,
-        awb_validated_by: null,
-        ready_at: null,
-      })
-    } else {
-      throw new ClientError('Sudah di langkah pertama')
-    }
+    const steps = WAREHOUSE_STEPS.map((step) => step.id)
+    const index = steps.indexOf(asWarehouse(row.warehouse_step))
+    if (index <= 0) throw new ClientError('Sudah di langkah pertama')
+    const leavingCheck = row.warehouse_step === 'siap_pickup' || row.warehouse_step === 'validasi_awb'
+    await touch(id, {
+      warehouse_step: steps[index - 1],
+      ...(leavingCheck ? { awb_validated_at: null, awb_validated_by: null, ready_at: null } : {}),
+    })
   } else if (action === 'validate_awb') {
     if (row.channel === 'unassigned') throw new ClientError('Pilih channel kurir dulu')
-    if (row.warehouse_step === 'print_label' || row.warehouse_step === 'packing') {
-      throw new ClientError('Selesaikan print label dan packing dulu')
+    if (asWarehouse(row.warehouse_step) !== 'validasi_awb') {
+      throw new ClientError('Selesaikan langkah sebelumnya dulu')
     }
     const awb = (body.awbNumber ?? '').trim()
     if (!awb) throw new ClientError('Nomor resi wajib diisi')

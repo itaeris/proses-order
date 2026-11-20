@@ -1,5 +1,6 @@
 import { dropCache, remember as cached } from './cache.js'
 import { getJoined, getSetting, setSetting, type JoinedRow } from './db.js'
+import { afterResi } from './flow.js'
 import { ClientError, touch } from './orders.js'
 
 const COURIERS = 'jne,sicepat,jnt,ninja,lion,anteraja,pos,sap,ide,tiki'
@@ -327,10 +328,12 @@ async function remember(order: JoinedRow, body: BiteshipBody, rate: BiteshipRate
   }
   await saveShipment(order.id, record)
   if (awb) {
+    const next = afterResi(order.warehouse_step)
     await touch(order.id, {
       channel_step: 'bayar',
       channel_done: 1,
       ...(order.awb_validated_at ? {} : { awb_number: awb }),
+      ...(next ? { warehouse_step: next } : {}),
     })
   }
   return record

@@ -1,7 +1,7 @@
 import { remember as cached } from './cache.js'
 import { getJoined, getSetting, setSetting, type JoinedRow } from './db.js'
 import { ClientError, touch } from './orders.js'
-import { jakartaDate } from './flow.js'
+import { afterResi, jakartaDate } from './flow.js'
 
 export interface DhlRate {
   productCode: string
@@ -373,10 +373,12 @@ async function remember(order: JoinedRow, body: Record<string, unknown>, rate: D
   }
   await setSetting(shipmentKey(order.id), JSON.stringify(record))
   if (awb) {
+    const next = afterResi(order.warehouse_step)
     await touch(order.id, {
       channel_step: 'print_close',
       channel_done: 1,
       ...(order.awb_validated_at ? {} : { awb_number: awb }),
+      ...(next ? { warehouse_step: next } : {}),
     })
   }
   return record

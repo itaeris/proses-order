@@ -22,6 +22,9 @@ export interface DhlShipment {
   status: string
   hasLabel: boolean
   errorDetail: string | null
+  pickupDate?: string | null
+  pickupTime?: string | null
+  pickupVehicle?: string | null
 }
 
 export interface DhlQuote {

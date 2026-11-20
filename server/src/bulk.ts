@@ -1,8 +1,9 @@
 import { biteshipQuote, createBiteshipShipment, refreshBiteshipShipment } from './biteship.js'
-import { getJoined, getSetting, type JoinedRow } from './db.js'
+import { getJoined, getSetting, setSetting, type JoinedRow } from './db.js'
 import { createDhlShipment, dhlQuote, refreshDhlShipment } from './dhl.js'
 import { createIndocoliteShipment, indocoliteQuote, refreshIndocoliteShipment, requestIndocolitePickup, type ShipmentRecord } from './indocolite.js'
-import { ClientError } from './orders.js'
+import { afterPickup } from './flow.js'
+import { ClientError, touch } from './orders.js'
 
 export type BulkChannel = 'indocolite' | 'biteship' | 'dhl' | 'unassigned'
 export type BulkStatus = 'created' | 'processing' | 'failed'
@@ -133,13 +134,7 @@ async function biteship(order: JoinedRow) {
     serviceCode: rate.serviceCode,
     cost: rate.cost,
   })
-  const booked = {
-    courier: shipment.shippingName || rate.shippingName,
-    service: shipment.serviceName || rate.serviceName,
-    cost: shipment.cost ?? rate.cost,
-  }
-  if (!shipment.awb) return result(order, 'processing', 'Kiriman sudah dibuat. Nomor resi belum keluar. Tekan Cek status.', booked)
-  return result(order, 'created', 'Resi jadi dan saldo sudah terpotong.', { awb: shipment.awb, ...booked })
+  return describeCourier(order, shipment, 'Resi jadi dan saldo sudah terpotong.', 'Kiriman sudah dibuat. Ajukan pickup untuk semua order.')
 }
 
 async function dhl(order: JoinedRow) {
@@ -147,9 +142,7 @@ async function dhl(order: JoinedRow) {
   const rate = cheapest(quote.rates)
   if (!rate) throw new ClientError('Tarif DHL tidak ditemukan')
   const shipment = await createDhlShipment({ orderId: order.id, productCode: rate.productCode, cost: rate.cost })
-  const booked = { courier: shipment.shippingName || 'DHL', service: shipment.serviceName || rate.serviceName, cost: shipment.cost ?? rate.cost }
-  if (!shipment.awb) return result(order, 'processing', 'Kiriman sudah dibuat di DHL. Nomor resi belum keluar. Tekan Cek status.', booked)
-  return result(order, 'created', 'Resi jadi. Label PDF ada di halaman order.', { awb: shipment.awb, ...booked })
+  return describeCourier(order, shipment, 'Resi jadi. Label PDF ada di halaman order.', 'Kiriman sudah dibuat di DHL. Ajukan pickup untuk semua order.')
 }
 
 async function refreshOne(id: string): Promise<BulkShipResult> {
@@ -164,15 +157,12 @@ async function refreshOne(id: string): Promise<BulkShipResult> {
     }
     if (order.channel === 'biteship') {
       const shipment = await refreshBiteshipShipment(order.id)
-      const booked = { courier: shipment.shippingName, service: shipment.serviceName, cost: shipment.cost }
-      if (!shipment.awb) return result(order, 'processing', 'Nomor resi belum keluar.', booked)
-      return result(order, 'created', 'Resi jadi.', { awb: shipment.awb, ...booked })
+      return describeCourier(order, shipment, 'Resi jadi.', 'Nomor resi belum keluar.', true)
     }
     if (order.channel === 'dhl') {
       const shipment = await refreshDhlShipment(order.id)
-      const booked = { courier: shipment.shippingName || 'DHL', service: shipment.serviceName, cost: shipment.cost }
-      if (!shipment.awb) return result(order, 'processing', 'Nomor resi belum keluar.', booked)
-      return result(order, 'created', shipment.status ? `Status DHL: ${shipment.status}` : 'Resi jadi.', { awb: shipment.awb, ...booked })
+      const detail = shipment.status ? `Status DHL: ${shipment.status}` : 'Resi jadi.'
+      return describeCourier(order, shipment, detail, 'Nomor resi belum keluar.', true)
     }
     return result(order, 'failed', 'Kurir belum dipilih.')
   } catch (error) {
@@ -187,10 +177,13 @@ async function pickupOne(id: string, input: { date: string; time: string; vehicl
     return { id, name: id, channel: 'unassigned', status: 'failed', awb: null, courier: null, service: null, cost: null, pickup: null, detail: 'Order tidak ditemukan' }
   }
   try {
-    if (order.channel !== 'indocolite') return result(order, 'failed', 'Ajukan pickup masal dipakai untuk Indocolite.')
-    await requestIndocolitePickup({ orderId: order.id, date: input.date, time: input.time, vehicle: input.vehicle })
-    const shipment = await refreshIndocoliteShipment(order.id)
-    return describeIndocolite(order, shipment, undefined, true)
+    if (order.channel === 'indocolite') {
+      await requestIndocolitePickup({ orderId: order.id, date: input.date, time: input.time, vehicle: input.vehicle })
+      const shipment = await refreshIndocoliteShipment(order.id)
+      return describeIndocolite(order, shipment, undefined, true)
+    }
+    if (order.channel === 'biteship' || order.channel === 'dhl') return await markPickup(order, input)
+    return result(order, 'failed', 'Kurir belum dipilih.')
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Pickup gagal diajukan'
     const status = /belum selesai|belum keluar/i.test(message) ? 'processing' : 'failed'
@@ -227,6 +220,64 @@ function describeIndocolite(
   return result(order, 'created', 'Resi jadi.', { awb: shipment.awb, ...extra })
 }
 
+async function markPickup(order: JoinedRow, input: { date: string; time: string; vehicle: string }) {
+  if (!order.assignee) return result(order, 'failed', 'Tekan Proses di halaman order dulu.')
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) return result(order, 'failed', 'Tanggal pickup tidak valid')
+  if (!/^\d{2}:\d{2}$/.test(input.time)) return result(order, 'failed', 'Jam pickup tidak valid')
+  if (!['Motor', 'Mobil', 'Truk'].includes(input.vehicle)) return result(order, 'failed', 'Kendaraan pickup tidak valid')
+  const key = shipmentSettingKey(order)
+  const raw = key ? await getSetting(key) : null
+  const shipment = raw ? (JSON.parse(raw) as PickupNote) : {}
+  const awb = shipment.awb || order.awb_number || null
+  if (!raw && !awb) return result(order, 'failed', 'Buat resi dulu.')
+  const saved: PickupNote = {
+    ...shipment,
+    awb,
+    pickupDate: input.date,
+    pickupTime: input.time,
+    pickupVehicle: input.vehicle,
+  }
+  await setSetting(key, JSON.stringify(saved))
+  const next = afterPickup(order.warehouse_step, Boolean(awb))
+  if (next) await touch(order.id, { warehouse_step: next })
+  const ready = order.channel === 'dhl' ? 'Resi jadi. Label PDF ada di halaman order.' : 'Resi jadi dan saldo sudah terpotong.'
+  return describeCourier(order, saved, ready, 'Pickup diajukan. Tekan Cek status sampai nomor resi tampil.')
+}
+
+interface PickupNote {
+  awb?: string | null
+  shippingName?: string | null
+  serviceName?: string | null
+  cost?: number | null
+  status?: string
+  errorDetail?: string | null
+  pickupDate?: string | null
+  pickupTime?: string | null
+  pickupVehicle?: string | null
+}
+
+function describeCourier(order: JoinedRow, shipment: PickupNote, ready: string, waiting: string, checked = false) {
+  const extra = {
+    awb: shipment.awb ?? null,
+    courier: shipment.shippingName || (order.channel === 'dhl' ? 'DHL' : null),
+    service: shipment.serviceName ?? null,
+    cost: shipment.cost ?? null,
+    pickup: pickupLabel(shipment),
+  }
+  if (shipment.status === 'failed' || shipment.status === 'rejected' || shipment.status === 'cancelled') {
+    return result(order, 'failed', shipment.errorDetail || 'Resi gagal dibuat', extra)
+  }
+  if (!shipment.awb && !shipment.pickupDate) return result(order, 'processing', waiting, extra)
+  if (!shipment.awb) {
+    const detail = checked
+      ? `Dicek ${clock()}. Pickup sudah diajukan, nomor resi belum keluar.`
+      : 'Pickup diajukan. Tekan Cek status sampai nomor resi tampil.'
+    return result(order, 'processing', detail, extra)
+  }
+  if (shipment.pickupDate) return result(order, 'created', 'Resi jadi. Pickup sudah diajukan.', extra)
+  return result(order, 'created', ready, extra)
+}
+
 function clock() {
   return new Intl.DateTimeFormat('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' }).format(new Date())
 }
@@ -251,11 +302,9 @@ async function recallOne(id: string): Promise<BulkShipResult> {
   }
   try {
     if (order.channel === 'indocolite') return describeIndocolite(order, JSON.parse(raw) as ShipmentRecord)
-    const shipment = JSON.parse(raw) as { awb?: string | null; shippingName?: string | null; serviceName?: string | null; cost?: number | null; status?: string; errorDetail?: string | null }
-    const booked = { courier: shipment.shippingName ?? null, service: shipment.serviceName ?? null, cost: shipment.cost ?? null }
-    if (shipment.status === 'failed') return result(order, 'failed', shipment.errorDetail || 'Resi gagal dibuat', booked)
-    if (!shipment.awb) return result(order, 'processing', 'Kiriman sudah dibuat. Nomor resi belum keluar.', booked)
-    return result(order, 'created', 'Resi jadi.', { awb: shipment.awb, ...booked })
+    const shipment = JSON.parse(raw) as PickupNote
+    const ready = order.channel === 'dhl' ? 'Resi jadi. Label PDF ada di halaman order.' : 'Resi jadi dan saldo sudah terpotong.'
+    return describeCourier(order, shipment, ready, 'Kiriman sudah dibuat. Ajukan pickup untuk semua order.')
   } catch {
     return result(order, 'failed', 'Riwayat kiriman tidak terbaca.')
   }

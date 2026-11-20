@@ -104,12 +104,12 @@ const routePath = ref(window.location.pathname)
 const managed = ref<OrderView | null>(null)
 const manageLoading = ref(false)
 
-const queueTabs = computed(() => [
-  { value: 'active', label: `Antrian ${summary.value?.queue ?? ''}`.trim() },
+const queueTabs = [
+  { value: 'active', label: 'Antrian' },
   { value: 'awaiting_awb', label: 'Menunggu resi' },
   { value: 'ready', label: 'Siap pickup' },
   { value: 'routing', label: 'Metode kirim' },
-])
+]
 const allSelected = computed(() => orders.value.length > 0 && orders.value.every((order) => selectedIds.value.includes(order.id)))
 const someSelected = computed(() => selectedIds.value.length > 0 && !allSelected.value)
 
@@ -716,11 +716,11 @@ onUnmounted(() => {
       </p>
 
       <section class="grid shrink-0 grid-cols-2 gap-2 md:grid-cols-5">
-        <button type="button" class="cursor-pointer rounded-xl border bg-card px-3 py-3 text-left shadow-xs" @click="preset('unclaimed')">
-          <p class="text-xs text-muted-foreground">Belum ada petugas</p>
+        <button type="button" class="cursor-pointer rounded-xl border bg-card px-3 py-3 text-left shadow-xs" @click="preset('queue')">
+          <p class="text-xs text-muted-foreground">Orderan yang masuk</p>
           <Skeleton v-if="!summary" class="mt-2 h-8 w-12" />
-          <p v-else class="mt-1 text-2xl font-semibold tabular-nums">{{ summary.unclaimed }}</p>
-          <p class="mt-1 text-[11px] leading-snug text-muted-foreground">Belum ada petugas yang mengerjakan.</p>
+          <p v-else class="mt-1 text-2xl font-semibold tabular-nums">{{ summary.queue }}</p>
+          <p class="mt-1 text-[11px] leading-snug text-muted-foreground">Order yang belum siap pickup.</p>
         </button>
         <button type="button" class="cursor-pointer rounded-xl border bg-card px-3 py-3 text-left shadow-xs" @click="preset('awb')">
           <p class="text-xs text-muted-foreground">Menunggu resi</p>
@@ -737,7 +737,7 @@ onUnmounted(() => {
         <button type="button" class="cursor-pointer rounded-xl border bg-card px-3 py-3 text-left shadow-xs" @click="preset('unassigned')">
           <p class="text-xs text-muted-foreground">Kurir belum dipilih</p>
           <Skeleton v-if="!summary" class="mt-2 h-8 w-12" />
-          <p v-else class="mt-1 text-2xl font-semibold tabular-nums">{{ summary.byChannel.unassigned }}</p>
+          <p v-else class="mt-1 text-2xl font-semibold tabular-nums">{{ summary.unassigned }}</p>
           <p class="mt-1 text-[11px] leading-snug text-muted-foreground">Metode kirim belum masuk Indocolite, Biteship, atau DHL.</p>
         </button>
         <button type="button" class="cursor-pointer rounded-xl border bg-card px-3 py-3 text-left shadow-xs" @click="preset('ready')">

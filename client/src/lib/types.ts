@@ -69,6 +69,7 @@ export interface Summary {
   readyToday: number
   queue: number
   byChannel: Record<ChannelId, number>
+  unassigned: number
   active: number
 }
 

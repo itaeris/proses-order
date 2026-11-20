@@ -22,6 +22,9 @@ export interface BiteshipShipment {
   cost: number | null
   status: string
   errorDetail: string | null
+  pickupDate?: string | null
+  pickupTime?: string | null
+  pickupVehicle?: string | null
 }
 
 export interface BiteshipQuote {
@@ -316,15 +319,19 @@ export async function refreshBiteshipShipment(orderId: string) {
 }
 
 async function remember(order: JoinedRow, body: BiteshipBody, rate: BiteshipRate): Promise<BiteshipShipment> {
+  const previous = await loadShipment(order.id)
   const awb = body.courier?.waybill_id?.trim() || null
   const record: BiteshipShipment = {
-    orderId: body.id ?? null,
+    orderId: body.id ?? previous?.orderId ?? null,
     awb,
     shippingName: body.courier?.company?.toUpperCase() || rate.shippingName || null,
     serviceName: body.courier?.type || rate.serviceName || null,
     cost: Number.isFinite(Number(body.price)) ? Number(body.price) : rate.cost,
     status: body.status || 'confirmed',
     errorDetail: null,
+    pickupDate: previous?.pickupDate ?? null,
+    pickupTime: previous?.pickupTime ?? null,
+    pickupVehicle: previous?.pickupVehicle ?? null,
   }
   await saveShipment(order.id, record)
   if (awb) {

@@ -198,7 +198,14 @@ export async function listOrders(filters: ListFilters): Promise<OrderView[]> {
   return orders
 }
 
-export async function summary() {
+function inView(order: OrderView, view: string) {
+  if (view === 'ready') return order.warehouseStep === 'siap_pickup'
+  if (view === 'awaiting_awb') return order.warehouseStep === 'validasi_awb' && !order.awbValidatedAt
+  if (view === 'all_active') return true
+  return order.warehouseStep !== 'siap_pickup'
+}
+
+export async function summary(view = 'active') {
   const rows = await listJoined()
   await alignShipped(rows)
   const orders = rows.map((row) => toView(row)).filter((order) => order.active)
@@ -208,15 +215,17 @@ export async function summary() {
   let overdue = 0
   let readyToday = 0
   let queue = 0
+  let unassigned = 0
   for (const order of orders) {
-    byChannel[order.channel] += 1
+    if (inView(order, view)) byChannel[order.channel] += 1
+    if (order.channel === 'unassigned') unassigned += 1
     if (order.warehouseStep !== 'siap_pickup' && !order.assignee) unclaimed += 1
     if (order.warehouseStep === 'validasi_awb' && !order.awbValidatedAt) awaitingAwb += 1
     if (order.overdue) overdue += 1
     if (order.readyToday) readyToday += 1
     if (order.warehouseStep !== 'siap_pickup') queue += 1
   }
-  return { unclaimed, awaitingAwb, overdue, readyToday, queue, byChannel, active: orders.length }
+  return { unclaimed, awaitingAwb, overdue, readyToday, queue, byChannel, unassigned, active: orders.length }
 }
 
 export async function touch(id: string, fields: Partial<ProcessRow>) {
@@ -255,8 +264,16 @@ async function alignShipped(rows: JoinedRow[]) {
 }
 
 async function shipmentPicked(row: JoinedRow) {
-  if (row.channel !== 'indocolite') return false
-  const raw = await getSetting(`pakeet_shipment:${row.id}`)
+  const key =
+    row.channel === 'indocolite'
+      ? `pakeet_shipment:${row.id}`
+      : row.channel === 'biteship'
+        ? `biteship_shipment:${row.id}`
+        : row.channel === 'dhl'
+          ? `dhl_shipment:${row.id}`
+          : ''
+  if (!key) return false
+  const raw = await getSetting(key)
   if (!raw) return false
   try {
     const shipment = JSON.parse(raw) as { pickupDate?: string | null }

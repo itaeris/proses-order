@@ -51,13 +51,15 @@ const FLOWS: Record<Courier, string[]> = {
   ],
   biteship: [
     'Buat resi memakai tarif termurah. Saldo terpotong dan nomor resi langsung masuk.',
-    'Tandai ajukan pickup di halaman order.',
-    'Cocokkan nomor resi di halaman ini, lalu tandai sudah dicek.',
+    'Ajukan pickup untuk semua order.',
+    'Cek status kalau nomor resi belum tampil.',
+    'Cocokkan nomor resi di halaman ini, lalu tandai sudah dicek. Siap pickup menyala setelah itu.',
   ],
   dhl: [
     'Buat resi memakai produk termurah. Kiriman dibuat di akun DHL. Label PDF ada di halaman order.',
-    'Tandai ajukan pickup di halaman order.',
-    'Cocokkan nomor resi di halaman ini, lalu tandai sudah dicek.',
+    'Ajukan pickup untuk semua order.',
+    'Cek status kalau nomor resi belum tampil.',
+    'Cocokkan nomor resi di halaman ini, lalu tandai sudah dicek. Siap pickup menyala setelah itu.',
   ],
 }
 
@@ -82,12 +84,8 @@ const summary = computed(() => {
 const failed = computed(() => props.results.filter((row) => row.status === 'failed'))
 const openRows = computed(() => props.results.filter((row) => row.status !== 'failed'))
 const showShip = computed(() => props.results.length === 0 || failed.value.length > 0)
-const showPickup = computed(() => props.channel === 'indocolite' && openRows.value.some((row) => !row.pickup))
-const showCheck = computed(() => {
-  const waiting = openRows.value.filter((row) => !row.awb)
-  if (props.channel === 'indocolite') return waiting.some((row) => row.pickup)
-  return waiting.length > 0
-})
+const showPickup = computed(() => openRows.value.some((row) => !row.pickup))
+const showCheck = computed(() => openRows.value.some((row) => row.pickup && !row.awb))
 
 function resiOf(order: OrderView) {
   return resultOf.value.get(order.id)?.awb || order.awbNumber || ''
@@ -98,19 +96,11 @@ const showValidate = computed(() => awaitingCheck.value.length > 0)
 const allChecked = computed(() => props.orders.length > 0 && props.orders.some((order) => order.awbValidatedAt) && props.orders.every((order) => !resiOf(order) || order.awbValidatedAt))
 
 const activeStep = computed(() => {
-  if (props.results.length === 0) return 0
-  if (props.channel === 'indocolite') {
-    if (allChecked.value) return 4
-    if (openRows.value.some((row) => row.awb)) return 3
-    if (openRows.value.some((row) => row.pickup)) return 2
-    if (openRows.value.length > 0) return 1
-    return 0
-  }
-  if (allChecked.value) return 3
-  if (props.results.some((row) => row.pickup)) return 2
-  if (props.results.some((row) => row.awb)) return 1
-  if (props.results.some((row) => row.status === 'processing' || row.status === 'created')) return 1
-  return 0
+  if (props.results.length === 0 || openRows.value.length === 0) return 0
+  if (allChecked.value) return 4
+  if (openRows.value.every((row) => row.awb && row.pickup)) return 3
+  if (openRows.value.every((row) => row.pickup)) return 2
+  return 1
 })
 
 function tone(status: ShipRow['status']) {

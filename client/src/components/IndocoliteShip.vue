@@ -102,7 +102,10 @@ async function create(rate: Rate) {
     })
     if (quote.value) quote.value = { ...quote.value, shipment: data.shipment }
     if (data.order) emit('changed', data.order)
-    toast.success(data.shipment.awb ? `Resi ${data.shipment.awb}` : 'Resi masih diproses. Tekan Cek status resi.')
+    const moved = data.shipment.awb && data.shipment.shippingName && data.shipment.shippingName !== rate.shippingName
+    toast.success(data.shipment.awb
+      ? `Resi ${data.shipment.awb}${moved ? ` lewat ${data.shipment.shippingName}` : ''}`
+      : 'Resi masih diproses. Tekan Cek status resi.')
   } catch (error) {
     toast.error(error instanceof Error ? error.message : 'Resi gagal dibuat')
   } finally {
@@ -190,7 +193,7 @@ function tomorrow() {
           <span class="text-muted-foreground"> · {{ rupiah(offer.cost) }}</span>
           <span v-if="offer.etd && offer.etd !== '-'" class="text-muted-foreground"> · {{ offer.etd }}</span>
         </p>
-        <p class="text-xs text-muted-foreground">Berat paket {{ quote.weightKg }} kg. {{ shopifyCourier ? 'Dipakai tarif termurah dari kurir Shopify.' : 'Dipakai tarif termurah.' }} Saldo terpotong saat resi dibuat.</p>
+        <p class="text-xs text-muted-foreground">Berat paket {{ quote.weightKg }} kg. {{ shopifyCourier ? 'Dipakai tarif termurah dari kurir Shopify.' : 'Dipakai tarif termurah.' }} Kalau ekspedisi itu tidak bisa, dipakai ekspedisi termurah berikutnya. Saldo terpotong saat resi dibuat.</p>
         <Button type="button" class="w-full" :disabled="busy" @click="create(offer)">Buat resi</Button>
       </div>
 

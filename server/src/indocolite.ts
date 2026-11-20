@@ -186,46 +186,100 @@ export async function createIndocoliteShipment(input: {
   const origin = quote.origin
   const destination = quote.destination
   if (!origin || !destination) throw new ClientError('Kelurahan asal dan tujuan wajib dipilih')
-  const rate = quote.rates.find((row) => row.shippingName === input.shippingName && row.serviceName === input.serviceName)
-  if (!rate || Math.round(rate.cost) !== Math.round(input.cost)) {
+  const ranked = [...quote.rates].sort((a, b) => a.cost - b.cost || a.shippingName.localeCompare(b.shippingName))
+  const chosen = ranked.find((row) => row.shippingName === input.shippingName && row.serviceName === input.serviceName)
+  if (!chosen || Math.round(chosen.cost) !== Math.round(input.cost)) {
     throw new ClientError('Ongkir itu sudah tidak berlaku. Muat ulang daftarnya.')
   }
   const shopifyHasRate = quote.shopifyRates.length > 0
-  if (shopifyHasRate && order.delivery_method && !matchesShopifyMethod(order.delivery_method, rate.shippingName)) {
+  if (shopifyHasRate && order.delivery_method && !matchesShopifyMethod(order.delivery_method, chosen.shippingName)) {
     throw new ClientError('Kurir ini bukan pilihan Shopify.')
   }
   const from = sender()
   const to = quote.recipient
   if (!to.phone || !to.street) throw new ClientError('Telepon atau alamat penerima tidak lengkap')
-  const weightKg = quote.weightKg
-  const items = JSON.parse(order.items_json) as Array<{ name?: string }>
+  const nextCourier = new Map<string, PakeetRate>()
+  for (const row of ranked) {
+    const key = row.shippingName.toLowerCase()
+    if (key === chosen.shippingName.toLowerCase()) continue
+    const current = nextCourier.get(key)
+    if (!current || row.cost < current.cost) nextCourier.set(key, row)
+  }
+  const candidates = [chosen, ...[...nextCourier.values()].sort((a, b) => a.cost - b.cost)].slice(0, 3)
+  const shopifyId = numericOrderId(order.id)
+  let lastError = 'Pakeet gagal membuat resi'
+  for (let index = 0; index < candidates.length; index += 1) {
+    const rate = candidates[index]
+    const slug = `${rate.shippingName}-${rate.serviceName}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+    try {
+      return await bookIndocolite(input.orderId, {
+        originId: origin.id,
+        destinationId: destination.id,
+        from,
+        to,
+        destination,
+        order,
+        rate,
+        weightKg: quote.weightKg,
+        shopifyId,
+        idempotencyKey: index === 0
+          ? `shopify:${process.env.SHOPIFY_SHOP}:${shopifyId}`
+          : `shopify:${process.env.SHOPIFY_SHOP}:${shopifyId}:${slug}`,
+      })
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : lastError
+      if (!courierRejected(lastError) || index === candidates.length - 1) break
+    }
+  }
+  throw new ClientError(lastError)
+}
+
+function courierRejected(message: string) {
+  const text = message.toLowerCase()
+  if (/saldo|balance|tidak diketahui|sudah dibuat|already/.test(text)) return false
+  return true
+}
+
+async function bookIndocolite(orderId: string, input: {
+  originId: number
+  destinationId: number
+  from: ReturnType<typeof sender>
+  to: ReturnType<typeof parseAddress>
+  destination: PakeetDestination
+  order: JoinedRow
+  rate: PakeetRate
+  weightKg: number
+  shopifyId: string
+  idempotencyKey: string
+}) {
+  const weightKg = input.weightKg
+  const items = JSON.parse(input.order.items_json) as Array<{ name?: string }>
   const lines = items.length > 0 ? items : [{ name: 'Paket' }]
   const each = Math.max(0.1, Math.round((weightKg / lines.length) * 100) / 100)
-  const value = Math.round(Number(order.total_amount ?? 0)) || 0
-  const shopifyId = numericOrderId(order.id)
+  const value = Math.round(Number(input.order.total_amount ?? 0)) || 0
   const response = await pakeet('/api/v1/shipments', {
     method: 'POST',
-    headers: { 'Idempotency-Key': `shopify:${process.env.SHOPIFY_SHOP}:${shopifyId}` },
+    headers: { 'Idempotency-Key': input.idempotencyKey },
     body: JSON.stringify({
-      sender_address_id: origin.id,
-      recipient_address_id: destination.id,
-      sender_name: from.name,
-      sender_business_name: from.name,
-      sender_phone: from.phone,
-      sender_address: from.address,
-      sender_city: from.city,
-      sender_province: from.province,
-      sender_postal_code: from.postalCode,
-      recipient_name: to.name || order.customer_name || 'Penerima',
-      recipient_phone: to.phone,
-      recipient_address: to.street,
-      recipient_city: to.city || destination.city_name,
-      recipient_province: to.province || destination.province_name,
-      recipient_postal_code: to.zip || destination.zip_code,
-      courier_id: input.shippingName.toLowerCase(),
-      service_code: input.serviceName,
-      service_name: input.serviceName,
-      selected_shipping_cost: rate.cost,
+      sender_address_id: input.originId,
+      recipient_address_id: input.destinationId,
+      sender_name: input.from.name,
+      sender_business_name: input.from.name,
+      sender_phone: input.from.phone,
+      sender_address: input.from.address,
+      sender_city: input.from.city,
+      sender_province: input.from.province,
+      sender_postal_code: input.from.postalCode,
+      recipient_name: input.to.name || input.order.customer_name || 'Penerima',
+      recipient_phone: input.to.phone,
+      recipient_address: input.to.street,
+      recipient_city: input.to.city || input.destination.city_name,
+      recipient_province: input.to.province || input.destination.province_name,
+      recipient_postal_code: input.to.zip || input.destination.zip_code,
+      courier_id: input.rate.shippingName.toLowerCase(),
+      service_code: input.rate.serviceName,
+      service_name: input.rate.serviceName,
+      selected_shipping_cost: input.rate.cost,
       payment_method: 'BANK TRANSFER',
       is_insurance: false,
       length: numberEnv('PAKEET_PACKAGE_LENGTH', 20),
@@ -237,27 +291,27 @@ export async function createIndocoliteShipment(input: {
         item_value: index === 0 ? value : 0,
       })),
       integration_source: 'shopify',
-      integration_order_id: shopifyId,
+      integration_order_id: input.shopifyId,
       shopify_store_id: process.env.SHOPIFY_SHOP,
-      shopify_order_id: shopifyId,
-      shopify_order_number: shopifyNumber(order.name),
+      shopify_order_id: input.shopifyId,
+      shopify_order_number: shopifyNumber(input.order.name),
     }),
   })
   const queued = response.data as { request_id?: string } | undefined
   const requestId = queued?.request_id
   if (!requestId) throw new ClientError('Pakeet tidak mengembalikan nomor permintaan')
-  let record: ShipmentRecord = {
+  const record: ShipmentRecord = {
     requestId,
     shipmentId: null,
     awb: null,
-    shippingName: input.shippingName,
-    serviceName: input.serviceName,
-    cost: rate.cost,
+    shippingName: input.rate.shippingName,
+    serviceName: input.rate.serviceName,
+    cost: input.rate.cost,
     status: 'queued',
     errorDetail: null,
   }
-  await saveShipment(input.orderId, record)
-  return settle(input.orderId, record)
+  await saveShipment(orderId, record)
+  return settle(orderId, record)
 }
 
 async function settle(orderId: string, record: ShipmentRecord): Promise<ShipmentRecord> {

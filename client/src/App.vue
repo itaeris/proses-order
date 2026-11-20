@@ -249,18 +249,24 @@ async function openBulk() {
   const same = previous?.channel === filteredCourier.value && sameIds(previous.ids, ids)
   bulkChannel.value = filteredCourier.value
   if (!same) shipResult.value = []
+  const shown = new Map(orders.value.map((order) => [order.id, order]))
+  const kept = same ? previous?.orders ?? [] : []
+  const name = user.value?.name ?? ''
+  bulkSnapshot.value = ids
+    .map((id) => {
+      const order = shown.get(id) ?? kept.find((item) => item.id === id)
+      if (!order) return undefined
+      return name && order.assignee !== name ? { ...order, assignee: name } : order
+    })
+    .filter((order): order is OrderView => !!order)
+  saveBulk()
+  go('/pengiriman-masal')
   try {
     await api('/api/orders/bulk-claim', {
       method: 'POST',
       body: JSON.stringify({ ids }),
     })
-    await load(true, true)
-    const fresh = new Map(orders.value.map((order) => [order.id, order]))
-    const kept = same ? previous.orders : []
-    bulkSnapshot.value = ids.map((id) => fresh.get(id) ?? kept.find((order) => order.id === id)).filter((order): order is OrderView => !!order)
-    saveBulk()
-    go('/pengiriman-masal')
-    await Promise.all([refreshHistory(), refreshBulkOrders()])
+    await refreshHistory()
   } catch (error) {
     toast.error(error instanceof Error ? error.message : 'Petugas gagal dicatat')
   }

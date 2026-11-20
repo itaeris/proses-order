@@ -56,6 +56,8 @@ const manageCode = computed(() => {
   return match ? decodeURIComponent(match[1]) : ''
 })
 
+const settingsOpen = computed(() => /^\/settings\/?$/.test(routePath.value))
+
 const initials = computed(() => {
   const parts = (user.value?.name ?? '').trim().split(/\s+/).filter(Boolean)
   if (parts.length === 0) return '?'
@@ -90,7 +92,7 @@ async function load(silent = false) {
   if (awb.value !== 'all') params.set('awb', awb.value)
   if (overdueOnly.value) params.set('overdue', '1')
   if (unclaimedOnly.value) params.set('unclaimed', '1')
-  params.set('view', view.value === 'routing' || view.value === 'settings' ? 'active' : view.value)
+  params.set('view', view.value === 'routing' ? 'active' : view.value)
   if (!silent) loading.value = true
   const attempts = silent ? 1 : 3
   let lastError: unknown
@@ -200,6 +202,10 @@ function openOrder(order: OrderView) {
 
 function goHome() {
   go('/')
+}
+
+function openSettings() {
+  go(settingsOpen.value ? '/' : '/settings')
 }
 
 async function openManaged() {
@@ -341,7 +347,7 @@ onUnmounted(() => {
             >
               <DropdownMenuItem
                 class="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none data-[highlighted]:bg-muted"
-                @select="view = view === 'settings' ? 'active' : 'settings'"
+                @select="openSettings"
               >
                 <SettingsIcon class="size-4" />
                 Pengaturan
@@ -359,8 +365,8 @@ onUnmounted(() => {
       </div>
     </header>
 
-    <main v-if="view === 'settings'" class="flex min-h-0 w-full flex-1 px-4 py-4">
-      <SettingsPanel class="min-h-0 flex-1" :admin="user?.role === 'admin'" :account="user" @back="view = 'active'" @updated="user = $event" />
+    <main v-if="settingsOpen" class="flex min-h-0 w-full flex-1 px-4 py-4">
+      <SettingsPanel class="min-h-0 flex-1" :admin="user?.role === 'admin'" :account="user" @back="goHome" @updated="user = $event" />
     </main>
 
     <main v-else-if="manageCode" class="flex min-h-0 w-full flex-1 flex-col">

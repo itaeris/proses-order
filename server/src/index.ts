@@ -19,7 +19,7 @@ import {
 } from './auth.js'
 import { ensureDatabase, getJoined, getRules, getSyncState } from './db.js'
 import { biteshipBalance, biteshipQuote, createBiteshipShipment, refreshBiteshipShipment } from './biteship.js'
-import { shipOrders } from './bulk.js'
+import { pickupOrders, recallOrders, refreshOrders, shipOrders } from './bulk.js'
 import { openCache } from './cache.js'
 import { createDhlShipment, dhlLabel, dhlQuote, refreshDhlShipment } from './dhl.js'
 import {
@@ -29,7 +29,7 @@ import {
   requestIndocolitePickup,
   saveOrigin,
 } from './indocolite.js'
-import { applyAction, ClientError, listOrders, summary, toView, updateRules, type ListFilters } from './orders.js'
+import { applyAction, claimOrders, ClientError, listOrders, summary, toView, updateRules, validateOrders, type ListFilters } from './orders.js'
 import { seedIfEmpty } from './seed.js'
 import { shopifyConfig } from './shopify.js'
 import { hasActiveSample } from './store.js'
@@ -204,9 +204,59 @@ app.get('/api/orders', async (req, res, next) => {
   }
 })
 
+app.post('/api/orders/bulk-claim', async (req, res, next) => {
+  try {
+    const orders = await claimOrders(req.body?.ids, signedIn(res).name)
+    res.json({ orders })
+  } catch (error) {
+    next(error)
+  }
+})
+
 app.post('/api/orders/bulk-ship', async (req, res, next) => {
   try {
     const results = await shipOrders(req.body?.ids)
+    res.json({ results })
+  } catch (error) {
+    next(asClient(error))
+  }
+})
+
+app.post('/api/orders/bulk-status', async (req, res, next) => {
+  try {
+    const results = await refreshOrders(req.body?.ids)
+    res.json({ results })
+  } catch (error) {
+    next(asClient(error))
+  }
+})
+
+app.post('/api/orders/bulk-validate', async (req, res, next) => {
+  try {
+    const orders = await validateOrders(req.body?.ids, signedIn(res).name, String(req.body?.awb ?? ''))
+    res.json({ orders })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.post('/api/orders/bulk-history', async (req, res, next) => {
+  try {
+    const results = await recallOrders(req.body?.ids)
+    res.json({ results })
+  } catch (error) {
+    next(asClient(error))
+  }
+})
+
+app.post('/api/orders/bulk-pickup', async (req, res, next) => {
+  try {
+    const body = req.body ?? {}
+    const results = await pickupOrders(body.ids, {
+      date: String(body.date ?? ''),
+      time: String(body.time ?? ''),
+      vehicle: String(body.vehicle ?? ''),
+    })
     res.json({ results })
   } catch (error) {
     next(asClient(error))

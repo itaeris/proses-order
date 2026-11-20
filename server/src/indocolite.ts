@@ -1,6 +1,6 @@
 import { dropCache } from './cache.js'
 import { getJoined, getSetting, setSetting, type JoinedRow } from './db.js'
-import { afterPickup, afterResi } from './flow.js'
+import { afterPickup, nextShippedStep } from './flow.js'
 import { ClientError, touch } from './orders.js'
 import {
   calculateRates,
@@ -347,19 +347,17 @@ async function settle(orderId: string, record: ShipmentRecord): Promise<Shipment
     if (status === 'completed' && data.shipment?.id) {
       latest = { ...record, status: 'processing', shipmentId: data.shipment.id, errorDetail: null }
       await saveShipment(orderId, latest)
-      let awb: string | null = null
-      try {
-        const label = await pakeet(`/api/v1/shipments/${data.shipment.id}/label`)
-        awb = (label.data as { awb_number?: string } | undefined)?.awb_number ?? null
-      } catch (error) {
-        const message = error instanceof Error ? error.message : ''
-        if (!/label not available/i.test(message)) throw error
+      const found = await readAwb(data.shipment.id)
+      const awb = found.awb
+      if (!awb) {
+        latest = { ...latest, status: found.waiting ? 'menunggu nomor' : 'processing' }
+        await saveShipment(orderId, latest)
+        return latest
       }
-      if (!awb) return latest
       latest = { ...latest, status: 'completed', awb }
       await saveShipment(orderId, latest)
       const joined = await getJoined(orderId)
-      const next = joined ? afterResi(joined.warehouse_step) : null
+      const next = joined ? nextShippedStep(joined.warehouse_step, true, Boolean(latest.pickupDate)) : null
       await touch(orderId, {
         indocolite_mode: 'otomatis',
         channel_step: 'konfirmasi',
@@ -373,6 +371,21 @@ async function settle(orderId: string, record: ShipmentRecord): Promise<Shipment
   }
   await touch(orderId, { indocolite_mode: 'otomatis', channel_step: 'form_pengiriman' })
   return latest
+}
+
+async function readAwb(shipmentId: string) {
+  let awb: string | null = null
+  try {
+    const label = await pakeet(`/api/v1/shipments/${shipmentId}/label`)
+    awb = (label.data as { awb_number?: string } | undefined)?.awb_number?.trim() || null
+  } catch (error) {
+    const message = error instanceof Error ? error.message : ''
+    if (!/label not available/i.test(message)) throw error
+  }
+  const shipment = await pakeet(`/api/v1/shipments/${shipmentId}`)
+  const order = (shipment.data as { komerce_order?: { airway_bill?: string | null; status?: string } } | undefined)?.komerce_order
+  const bill = order?.airway_bill?.trim() || null
+  return { awb: awb || bill, waiting: (order?.status ?? '').toLowerCase() === 'pending' }
 }
 
 export async function refreshIndocoliteShipment(orderId: string) {
@@ -393,7 +406,7 @@ export async function requestIndocolitePickup(input: { orderId: string; date: st
   const order = await requireIndocolite(input.orderId)
   if (!order.assignee) throw new ClientError('Tekan Proses dulu')
   const record = await loadShipment(input.orderId)
-  if (!record?.shipmentId) throw new ClientError('Resi belum selesai dibuat')
+  if (!record?.shipmentId) throw new ClientError('Kiriman belum siap. Tunggu sebentar, lalu ajukan pickup lagi.')
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) throw new ClientError('Tanggal pickup tidak valid')
   if (!/^\d{2}:\d{2}$/.test(input.time)) throw new ClientError('Jam pickup tidak valid')
   if (!['Motor', 'Mobil', 'Truk'].includes(input.vehicle)) throw new ClientError('Kendaraan pickup tidak valid')
@@ -417,7 +430,7 @@ export async function requestIndocolitePickup(input: { orderId: string; date: st
     pickupVehicle: input.vehicle,
   }
   await saveShipment(order.id, saved)
-  const next = afterPickup(order.warehouse_step)
+  const next = afterPickup(order.warehouse_step, Boolean(order.awb_number || saved.awb))
   await touch(order.id, {
     channel_step: 'konfirmasi',
     channel_done: 1,

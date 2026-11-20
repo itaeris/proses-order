@@ -1,4 +1,4 @@
-import { getJoined, getRules, listJoined, saveRules, updateProcess, type JoinedRow, type ProcessRow } from './db.js'
+import { getJoined, getRules, getSetting, listJoined, saveRules, updateProcess, type JoinedRow, type ProcessRow } from './db.js'
 
 export class ClientError extends Error {}
 import {
@@ -7,6 +7,7 @@ import {
   isOverdue,
   jakartaDate,
   suggestChannel,
+  nextShippedStep,
   WAREHOUSE_STEPS,
   type ChannelId,
   type CourierChannel,
@@ -147,7 +148,9 @@ function rank(order: OrderView): number {
 
 export async function listOrders(filters: ListFilters): Promise<OrderView[]> {
   const view = filters.view || 'active'
-  let orders = (await listJoined()).map((row) => toView(row))
+  const rows = await listJoined()
+  await alignShipped(rows)
+  let orders = rows.map((row) => toView(row))
 
   if (view === 'ready') {
     orders = orders.filter((order) => order.active && order.warehouseStep === 'siap_pickup')
@@ -196,7 +199,9 @@ export async function listOrders(filters: ListFilters): Promise<OrderView[]> {
 }
 
 export async function summary() {
-  const orders = (await listJoined()).map((row) => toView(row)).filter((order) => order.active)
+  const rows = await listJoined()
+  await alignShipped(rows)
+  const orders = rows.map((row) => toView(row)).filter((order) => order.active)
   const byChannel = { indocolite: 0, biteship: 0, dhl: 0, unassigned: 0 }
   let unclaimed = 0
   let awaitingAwb = 0
@@ -238,6 +243,29 @@ export async function touch(id: string, fields: Partial<ProcessRow>) {
   await updateProcess(next)
 }
 
+async function alignShipped(rows: JoinedRow[]) {
+  for (const row of rows) {
+    if (!(row.awb_number ?? '').trim() || row.awb_validated_at) continue
+    const picked = await shipmentPicked(row)
+    const next = nextShippedStep(row.warehouse_step, true, picked)
+    if (!next) continue
+    await touch(row.id, { warehouse_step: next })
+    row.warehouse_step = next
+  }
+}
+
+async function shipmentPicked(row: JoinedRow) {
+  if (row.channel !== 'indocolite') return false
+  const raw = await getSetting(`pakeet_shipment:${row.id}`)
+  if (!raw) return false
+  try {
+    const shipment = JSON.parse(raw) as { pickupDate?: string | null }
+    return Boolean(shipment.pickupDate)
+  } catch {
+    return false
+  }
+}
+
 function applyReady(row: ProcessRow) {
   const awbOk = !!row.awb_validated_at && !!(row.awb_number ?? '').trim()
   if (awbOk && row.warehouse_step === 'validasi_awb') {
@@ -265,6 +293,55 @@ export interface ActionBody {
   awbNumber?: string
   by?: string
   note?: string
+}
+
+export async function validateOrders(ids: unknown, actor: string, scanned: string): Promise<OrderView[]> {
+  const name = actor.trim()
+  if (!name) throw new ClientError('Masuk dulu')
+  const awb = scanned.trim()
+  if (!awb) throw new ClientError('Scan resi dulu')
+  if (!Array.isArray(ids) || ids.length === 0) throw new ClientError('Pilih order dulu')
+  const unique = [...new Set(ids.map((id) => String(id)))].filter(Boolean)
+  if (unique.length > 25) throw new ClientError('Pilih paling banyak 25 order sekaligus')
+  const matches = []
+  for (const id of unique) {
+    const row = await getJoined(id)
+    if (row && (row.awb_number ?? '').trim() === awb) matches.push(row)
+  }
+  if (matches.length === 0) throw new ClientError('Nomor resi tidak cocok.')
+  if (matches.every((row) => row.awb_validated_at)) throw new ClientError('Resi ini sudah dicek.')
+  const views: OrderView[] = []
+  for (const row of matches) {
+    if (row.awb_validated_at) {
+      views.push(toView(row))
+      continue
+    }
+    if (asWarehouse(row.warehouse_step) !== 'validasi_awb') throw new ClientError('Order ini belum di langkah validasi')
+    await touch(row.id, {
+      awb_number: awb,
+      awb_validated_at: new Date().toISOString(),
+      awb_validated_by: name,
+      warehouse_step: 'validasi_awb',
+    })
+    views.push(toView(await requireOrder(row.id)))
+  }
+  return views
+}
+
+export async function claimOrders(ids: unknown, actor: string): Promise<OrderView[]> {
+  const name = actor.trim()
+  if (!name) throw new ClientError('Masuk dulu')
+  if (!Array.isArray(ids) || ids.length === 0) throw new ClientError('Pilih order dulu')
+  const unique = [...new Set(ids.map((id) => String(id)))].filter(Boolean)
+  if (unique.length > 25) throw new ClientError('Pilih paling banyak 25 order sekaligus')
+  const views: OrderView[] = []
+  for (const id of unique) {
+    const row = await getJoined(id)
+    if (!row) continue
+    if (row.assignee !== name) await touch(id, { assignee: name })
+    views.push(toView(await requireOrder(id)))
+  }
+  return views
 }
 
 export async function applyAction(id: string, body: ActionBody, actor = ''): Promise<OrderView> {
@@ -361,6 +438,8 @@ export async function applyAction(id: string, body: ActionBody, actor = ''): Pro
     }
     const awb = (body.awbNumber ?? '').trim()
     if (!awb) throw new ClientError('Nomor resi wajib diisi')
+    const known = (row.awb_number ?? '').trim()
+    if (known && awb !== known) throw new ClientError('Nomor resi tidak cocok.')
     await touch(id, {
       awb_number: awb,
       awb_validated_at: new Date().toISOString(),

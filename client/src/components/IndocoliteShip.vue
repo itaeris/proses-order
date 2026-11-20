@@ -130,7 +130,7 @@ async function refresh() {
     if (data.order) emit('changed', data.order)
     if (data.shipment.awb && data.shipment.awb !== previousAwb) toast.success(`Resi ${data.shipment.awb}`)
     else if (data.shipment.status !== previousStatus) toast.success(`Status jadi ${data.shipment.status}`)
-    else if (!data.shipment.awb) toast.info('Nomor resi belum keluar. Coba lagi sebentar.')
+    else if (!data.shipment.awb) toast.info(data.shipment.status === 'menunggu nomor' ? 'Indocolite sudah dibayar. Komerce belum menerbitkan nomor resi.' : 'Nomor resi belum keluar. Coba lagi sebentar.')
     else toast.success(`Resi ${data.shipment.awb}`)
   } catch (error) {
     toast.error(error instanceof Error ? error.message : 'Status resi gagal dicek')
@@ -192,7 +192,7 @@ function tomorrow() {
         <span v-if="quote.shipment.cost != null" class="font-normal text-muted-foreground"> · {{ rupiah(quote.shipment.cost) }}</span>
       </p>
       <p v-else-if="quote.shipment" class="text-xs text-muted-foreground">
-        Status permintaan: {{ quote.shipment.status }}
+        {{ quote.shipment.status === 'menunggu nomor' ? 'Indocolite sudah dibayar. Komerce belum menerbitkan nomor resi.' : `Status permintaan: ${quote.shipment.status}` }}
         <span v-if="quote.shipment.shippingName" class="mt-1 block text-foreground">
           {{ quote.shipment.shippingName }} {{ quote.shipment.serviceName }}
           <template v-if="quote.shipment.cost != null"> · {{ rupiah(quote.shipment.cost) }}</template>

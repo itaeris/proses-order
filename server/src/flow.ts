@@ -58,13 +58,22 @@ export const WAREHOUSE_STEPS: Array<Omit<StepDef, 'state'>> = [
   { id: 'siap_pickup', label: 'Siap pickup' },
 ]
 
-export function afterResi(current: string): WarehouseStep | null {
-  return current === 'buat_resi' ? 'ajukan_pickup' : null
+export function nextShippedStep(current: string, hasAwb: boolean, hasPickup: boolean): WarehouseStep | null {
+  const steps = WAREHOUSE_STEPS.map((step) => step.id)
+  const at = steps.indexOf(current as WarehouseStep)
+  if (at < 0) return null
+  const target: WarehouseStep | null = hasAwb && hasPickup ? 'validasi_awb' : hasAwb || hasPickup ? 'ajukan_pickup' : null
+  if (!target) return null
+  const to = steps.indexOf(target)
+  return to > at ? target : null
 }
 
-export function afterPickup(current: string): WarehouseStep | null {
-  if (current === 'buat_resi' || current === 'ajukan_pickup') return 'form_pengiriman'
-  return null
+export function afterResi(current: string): WarehouseStep | null {
+  return nextShippedStep(current, true, false)
+}
+
+export function afterPickup(current: string, hasAwb = false): WarehouseStep | null {
+  return nextShippedStep(current, hasAwb, true)
 }
 
 export function suggestChannel(

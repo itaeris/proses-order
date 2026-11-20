@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon, ChevronDownIcon, LogOutIcon, RefreshCwIcon, SearchIcon, SettingsIcon } from '@lucide/vue'
-import { DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle, DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuTrigger } from 'reka-ui'
+import { DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuTrigger } from 'reka-ui'
 import { toast } from 'vue-sonner'
+import BulkShipPanel from '@/components/BulkShipPanel.vue'
 import LoginPage, { type SessionUser } from '@/components/LoginPage.vue'
 import OrderSheet from '@/components/OrderSheet.vue'
 import RoutingPanel from '@/components/RoutingPanel.vue'
@@ -33,8 +34,9 @@ const status = ref<StatusInfo | null>(null)
 const loading = ref(true)
 const syncing = ref(false)
 const selectedIds = ref<string[]>([])
-const shipOpen = ref(false)
-const shipping = ref(false)
+const bulkJob = ref<BulkJob>('')
+const bulkChannel = ref<'indocolite' | 'biteship' | 'dhl' | null>(null)
+const bulkSnapshot = ref<OrderView[]>([])
 type ShipStatus = 'created' | 'processing' | 'failed'
 interface ShipRow {
   id: string
@@ -43,20 +45,52 @@ interface ShipRow {
   status: ShipStatus
   awb: string | null
   courier: string | null
+  service: string | null
+  cost: number | null
+  pickup: string | null
   detail: string
 }
 
-const SHIP_FLOW: Record<ChannelId, string> = {
-  indocolite:
-    'Tarif termurah. Kalau ekspedisi itu tidak bisa, dipakai ekspedisi berikutnya. Saldo terpotong saat permintaan masuk. Nomor resi sering menyusul: buka order dan tekan Cek status. Jangan buat ulang. Setelah nomor ada: ajukan pickup, form buat kiriman, konfirmasi pengiriman, validasi AWB, lalu siap pickup.',
-  biteship:
-    'Tarif termurah. Saldo terpotong dan nomor resi langsung masuk. Lalu tandai ajukan pickup, form buat kiriman, konfirmasi pengiriman, validasi AWB, dan siap pickup.',
-  dhl:
-    'Produk termurah. Kiriman dibuat di akun DHL dan label PDF ada di halaman order. Lalu tandai ajukan pickup, form buat kiriman, konfirmasi pengiriman, validasi AWB, dan siap pickup.',
-  unassigned: 'Order ini tidak dibuat resinya. Buka order, pilih Indocolite, Biteship, atau DHL, lalu ulangi.',
-}
+type BulkJob = '' | 'ship' | 'check' | 'pickup' | 'validate'
 
 const shipResult = ref<ShipRow[]>([])
+
+const BULK_KEY = 'proses-bulk'
+
+function readBulk() {
+  try {
+    const raw = localStorage.getItem(BULK_KEY)
+    if (!raw) return null
+    const saved = JSON.parse(raw) as { channel?: 'indocolite' | 'biteship' | 'dhl'; ids?: string[]; orders?: OrderView[]; results?: ShipRow[] }
+    if (saved.channel !== 'indocolite' && saved.channel !== 'biteship' && saved.channel !== 'dhl') return null
+    if (!Array.isArray(saved.orders) || !Array.isArray(saved.results) || !Array.isArray(saved.ids)) return null
+    return { channel: saved.channel, ids: saved.ids, orders: saved.orders, results: saved.results }
+  } catch {
+    return null
+  }
+}
+
+function saveBulk() {
+  if (!bulkChannel.value || bulkSnapshot.value.length === 0) return
+  localStorage.setItem(BULK_KEY, JSON.stringify({
+    channel: bulkChannel.value,
+    ids: bulkSnapshot.value.map((order) => order.id),
+    orders: bulkSnapshot.value,
+    results: shipResult.value,
+  }))
+}
+
+function sameIds(left: string[], right: string[]) {
+  return [...left].sort().join() === [...right].sort().join()
+}
+
+const savedBulk = readBulk()
+if (savedBulk) {
+  bulkChannel.value = savedBulk.channel
+  bulkSnapshot.value = savedBulk.orders
+  shipResult.value = savedBulk.results
+  if (window.location.pathname.startsWith('/pengiriman-masal')) selectedIds.value = savedBulk.ids
+}
 const q = ref('')
 const channel = ref('all')
 const warehouse = ref('all')
@@ -78,24 +112,6 @@ const queueTabs = computed(() => [
 ])
 const allSelected = computed(() => orders.value.length > 0 && orders.value.every((order) => selectedIds.value.includes(order.id)))
 const someSelected = computed(() => selectedIds.value.length > 0 && !allSelected.value)
-const shipTitle = computed(() => {
-  const created = shipResult.value.filter((row) => row.status === 'created').length
-  const pending = shipResult.value.filter((row) => row.status === 'processing').length
-  if (created && pending) return `${created} resi jadi, ${pending} masih diproses`
-  if (created) return `${created} resi dibuat`
-  if (pending) return `${pending} permintaan masuk, nomor belum keluar`
-  return 'Belum ada resi yang jadi'
-})
-
-function uniqueChannels(rows: Array<{ channel: ChannelId }>) {
-  const present = new Set(rows.map((row) => row.channel))
-  return (['indocolite', 'biteship', 'dhl', 'unassigned'] as const).filter((channel) => present.has(channel))
-}
-
-const selectedChannels = computed(() =>
-  uniqueChannels(orders.value.filter((order) => selectedIds.value.includes(order.id))),
-)
-const resultChannels = computed(() => uniqueChannels(shipResult.value))
 
 const manageCode = computed(() => {
   const match = routePath.value.match(/^\/manage-order\/([^/]+)/)
@@ -103,6 +119,12 @@ const manageCode = computed(() => {
 })
 
 const settingsOpen = computed(() => /^\/settings\/?$/.test(routePath.value))
+const bulkOpen = computed(() => /^\/pengiriman-masal\/?$/.test(routePath.value))
+const filteredCourier = computed(() => (channel.value === 'indocolite' || channel.value === 'biteship' || channel.value === 'dhl' ? channel.value : null))
+const bulkOrders = computed(() => {
+  const fresh = new Map(orders.value.map((order) => [order.id, order]))
+  return bulkSnapshot.value.map((order) => fresh.get(order.id) ?? order)
+})
 
 const initials = computed(() => {
   const parts = (user.value?.name ?? '').trim().split(/\s+/).filter(Boolean)
@@ -217,27 +239,139 @@ function toggleAll() {
   selectedIds.value = allSelected.value ? [] : orders.value.map((order) => order.id)
 }
 
-function askShip() {
-  shipResult.value = []
-  shipOpen.value = true
+async function openBulk() {
+  if (!filteredCourier.value || selectedIds.value.length === 0) return
+  const ids = [...selectedIds.value]
+  const previous = readBulk()
+  const same = previous?.channel === filteredCourier.value && sameIds(previous.ids, ids)
+  bulkChannel.value = filteredCourier.value
+  if (!same) shipResult.value = []
+  try {
+    await api('/api/orders/bulk-claim', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    })
+    await load(true, true)
+    const fresh = new Map(orders.value.map((order) => [order.id, order]))
+    const kept = same ? previous.orders : []
+    bulkSnapshot.value = ids.map((id) => fresh.get(id) ?? kept.find((order) => order.id === id)).filter((order): order is OrderView => !!order)
+    saveBulk()
+    go('/pengiriman-masal')
+    await refreshHistory()
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : 'Petugas gagal dicatat')
+  }
+}
+
+async function refreshHistory() {
+  const ids = bulkSnapshot.value.map((order) => order.id)
+  if (ids.length === 0) return
+  const data = await api<{ results: ShipRow[] }>('/api/orders/bulk-history', {
+    method: 'POST',
+    body: JSON.stringify({ ids }),
+  })
+  shipResult.value = data.results.map((row) => {
+    const previous = shipResult.value.find((item) => item.id === row.id)
+    return {
+      ...row,
+      courier: row.courier ?? previous?.courier ?? null,
+      service: row.service ?? previous?.service ?? null,
+      cost: row.cost ?? previous?.cost ?? null,
+      pickup: row.pickup ?? previous?.pickup ?? null,
+    }
+  })
+  saveBulk()
+}
+
+function bulkIds() {
+  const shown = bulkOrders.value.map((order) => order.id)
+  return shown.length > 0 ? shown : selectedIds.value
 }
 
 async function shipSelected() {
-  shipping.value = true
+  await runBulk('ship', '/api/orders/bulk-ship', { ids: bulkIds() }, 'Pengiriman masal gagal')
+}
+
+async function checkSelected() {
+  await runBulk('check', '/api/orders/bulk-status', { ids: bulkIds() }, 'Status resi gagal dicek')
+}
+
+async function pickupSelected(input: { date: string; time: string; vehicle: string }) {
+  await runBulk('pickup', '/api/orders/bulk-pickup', { ids: bulkIds(), ...input }, 'Pickup gagal diajukan')
+}
+
+async function validateSelected(awb: string) {
+  bulkJob.value = 'validate'
   try {
-    const data = await api<{ results: ShipRow[] }>('/api/orders/bulk-ship', {
+    await api('/api/orders/bulk-validate', {
       method: 'POST',
-      body: JSON.stringify({ ids: selectedIds.value }),
+      body: JSON.stringify({ ids: bulkIds(), awb }),
     })
-    shipResult.value = data.results
-    selectedIds.value = []
-    await load()
+    await load(true, true)
+    toast.success(`Resi ${awb} cocok. Order siap pickup.`)
   } catch (error) {
-    toast.error(error instanceof Error ? error.message : 'Pengiriman masal gagal')
-    shipOpen.value = false
+    toast.error(error instanceof Error ? error.message : 'Resi gagal dicek')
   } finally {
-    shipping.value = false
+    bulkJob.value = ''
   }
+}
+
+async function runBulk(job: BulkJob, path: string, body: unknown, fallback: string) {
+  bulkJob.value = job
+  if (job === 'check') toast.message('Mengecek nomor resi…')
+  try {
+    const data = await api<{ results: ShipRow[] }>(path, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
+    if (job === 'check') reportCheck(data.results)
+    if (job === 'pickup') reportPickup(data.results)
+    shipResult.value = data.results.map((row) => {
+      const previous = shipResult.value.find((item) => item.id === row.id)
+      return {
+        ...row,
+        courier: row.courier ?? previous?.courier ?? null,
+        service: row.service ?? previous?.service ?? null,
+        cost: row.cost ?? previous?.cost ?? null,
+        pickup: row.pickup ?? previous?.pickup ?? null,
+      }
+    })
+    await load(true, true)
+    saveBulk()
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : fallback)
+  } finally {
+    bulkJob.value = ''
+  }
+}
+
+function reportPickup(rows: ShipRow[]) {
+  const ready = rows.filter((row) => row.awb)
+  const booked = rows.filter((row) => row.pickup)
+  const failed = rows.filter((row) => row.status === 'failed')
+  if (ready.length > 0) {
+    toast.success(ready.map((row) => `${row.name} ${row.awb}`).join(', '))
+    return
+  }
+  if (booked.length > 0) {
+    toast.success('Pickup diajukan. Tekan Cek status untuk nomor resi.')
+    return
+  }
+  toast.error(failed[0]?.detail || 'Pickup gagal diajukan')
+}
+
+function reportCheck(rows: ShipRow[]) {
+  const ready = rows.filter((row) => row.awb)
+  const failed = rows.filter((row) => row.status === 'failed')
+  if (ready.length > 0) {
+    toast.success(ready.map((row) => `${row.name} ${row.awb}`).join(', '))
+    return
+  }
+  if (failed.length > 0 && failed.length === rows.length) {
+    toast.error(failed[0]?.detail || 'Status resi gagal dicek')
+    return
+  }
+  toast.info('Nomor resi belum keluar')
 }
 
 function openOrder(order: OrderView) {
@@ -288,16 +422,10 @@ async function openManaged() {
   await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)))
   if (manageCode.value !== code) return
   const known = orders.value.find((order) => orderCode(order).toLowerCase() === code.toLowerCase())
-  if (known) {
-    await new Promise((resolve) => window.setTimeout(resolve, 180))
-    if (manageCode.value !== code) return
-    managed.value = known
-    manageLoading.value = false
-    return
-  }
   try {
-    const data = await api<{ orders: OrderView[] }>(`/api/orders?q=${encodeURIComponent(code)}&view=all_active`)
-    managed.value = data.orders.find((order) => orderCode(order).toLowerCase() === code.toLowerCase()) ?? null
+    const data = await api<{ orders: OrderView[] }>(`/api/orders?q=${encodeURIComponent(code)}&view=all_active`, undefined, { fresh: true })
+    if (manageCode.value !== code) return
+    managed.value = data.orders.find((order) => orderCode(order).toLowerCase() === code.toLowerCase()) ?? known ?? null
   } catch (error) {
     if (error instanceof ApiError && error.status === 401) user.value = null
     managed.value = null
@@ -393,6 +521,13 @@ async function enter(account: SessionUser) {
   user.value = account
   await Promise.all([load(), loadStatus()])
   startPolling()
+  if (bulkOpen.value && bulkSnapshot.value.length > 0) {
+    try {
+      await refreshHistory()
+    } catch {
+      // Riwayat lokal tetap ditampilkan.
+    }
+  }
 }
 
 async function logout() {
@@ -402,6 +537,7 @@ async function logout() {
     // Sesi lokal tetap ditutup.
   }
   window.clearInterval(poll)
+  localStorage.removeItem(BULK_KEY)
   user.value = null
   view.value = 'active'
 }
@@ -508,6 +644,26 @@ onUnmounted(() => {
 
     <main v-if="settingsOpen" class="flex min-h-0 w-full flex-1 px-4 py-4">
       <SettingsPanel class="min-h-0 flex-1" :admin="user?.role === 'admin'" :account="user" @back="goHome" @updated="user = $event" />
+    </main>
+
+    <main v-else-if="bulkOpen" class="flex min-h-0 w-full flex-1 px-4 py-4">
+      <BulkShipPanel
+        v-if="bulkChannel"
+        class="min-h-0 flex-1"
+        :channel="bulkChannel"
+        :orders="bulkOrders"
+        :results="shipResult"
+        :job="bulkJob"
+        @back="goHome"
+        @ship="shipSelected"
+        @check="checkSelected"
+        @pickup="pickupSelected"
+        @validate="validateSelected"
+      />
+      <div v-else class="space-y-3">
+        <Button variant="outline" size="sm" type="button" class="cursor-pointer" @click="goHome">Antrian</Button>
+        <p class="text-sm text-muted-foreground">Filter Indocolite, Biteship, atau DHL, centang ordernya, lalu buka pengiriman masal.</p>
+      </div>
     </main>
 
     <main v-else-if="manageCode" class="flex min-h-0 w-full flex-1 flex-col">
@@ -653,8 +809,9 @@ onUnmounted(() => {
         </div>
         <div v-if="selectedIds.length" class="flex flex-wrap items-center gap-2 border-b bg-muted/40 px-3 py-2">
           <p class="mr-auto text-sm font-medium">{{ selectedIds.length }} dipilih</p>
-          <Button size="sm" type="button" :disabled="shipping" @click="askShip">Buat resi</Button>
-          <Button size="sm" variant="ghost" type="button" :disabled="shipping" @click="selectedIds = []">Batal</Button>
+          <Button v-if="filteredCourier" size="sm" type="button" class="cursor-pointer" @click="openBulk">Pengiriman masal</Button>
+          <p v-else class="text-xs text-muted-foreground">Filter Indocolite, Biteship, atau DHL dulu.</p>
+          <Button size="sm" variant="ghost" type="button" class="cursor-pointer" @click="selectedIds = []">Batal</Button>
         </div>
 
         <div class="min-h-0 flex-1 overflow-auto">
@@ -765,51 +922,6 @@ onUnmounted(() => {
         </div>
       </section>
     </main>
-    <DialogRoot :open="shipOpen" @update:open="(open) => { if (!shipping) shipOpen = open }">
-      <DialogPortal>
-        <DialogOverlay class="fixed inset-0 z-50 bg-black/40" />
-        <DialogContent class="fixed top-1/2 left-1/2 z-50 max-h-[85vh] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border bg-card p-4 shadow-lg">
-          <template v-if="shipResult.length === 0">
-            <DialogTitle class="text-base font-semibold">Buat resi {{ selectedIds.length }} order?</DialogTitle>
-            <DialogDescription class="mt-1 text-sm text-muted-foreground">
-              Ini hanya membuat resi. Print label, packing, dan kurir di halaman order tidak dilompati. Siap pickup menyala setelah resi divalidasi.
-            </DialogDescription>
-            <ul class="mt-3 space-y-2">
-              <li v-for="channel in selectedChannels" :key="channel" class="rounded-lg border px-3 py-2">
-                <p class="text-sm font-medium">{{ CHANNEL_LABEL[channel] }}</p>
-                <p class="mt-1 text-xs leading-relaxed text-muted-foreground">{{ SHIP_FLOW[channel] }}</p>
-              </li>
-            </ul>
-            <div class="mt-4 flex justify-end gap-2">
-              <Button variant="outline" type="button" :disabled="shipping" @click="shipOpen = false">Batal</Button>
-              <Button type="button" :disabled="shipping" @click="shipSelected">{{ shipping ? 'Membuat resi…' : 'Buat resi' }}</Button>
-            </div>
-          </template>
-          <template v-else>
-            <DialogTitle class="text-base font-semibold">{{ shipTitle }}</DialogTitle>
-            <DialogDescription class="mt-1 text-sm text-muted-foreground">
-              Order tetap di antrian. Lanjutkan dari langkah yang sekarang di halaman order.
-            </DialogDescription>
-            <ul class="mt-3 max-h-52 space-y-2 overflow-auto text-sm">
-              <li v-for="row in shipResult" :key="row.id">
-                <p class="font-medium">{{ row.name }} <span class="font-normal text-muted-foreground">· {{ CHANNEL_LABEL[row.channel] }}</span></p>
-                <p v-if="row.awb" class="font-mono text-xs text-muted-foreground">{{ row.awb }}<span v-if="row.courier"> · {{ row.courier }}</span></p>
-                <p class="text-xs" :class="row.status === 'failed' ? 'text-rose-800' : row.status === 'processing' ? 'text-amber-800' : 'text-muted-foreground'">{{ row.detail }}</p>
-              </li>
-            </ul>
-            <ul class="mt-3 space-y-2">
-              <li v-for="channel in resultChannels" :key="channel" class="rounded-lg bg-muted px-3 py-2">
-                <p class="text-sm font-medium">{{ CHANNEL_LABEL[channel] }}</p>
-                <p class="mt-1 text-xs leading-relaxed text-muted-foreground">{{ SHIP_FLOW[channel] }}</p>
-              </li>
-            </ul>
-            <div class="mt-4 flex justify-end">
-              <Button type="button" @click="shipOpen = false">Tutup</Button>
-            </div>
-          </template>
-        </DialogContent>
-      </DialogPortal>
-    </DialogRoot>
     </div>
   </div>
 </template>

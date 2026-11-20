@@ -40,7 +40,7 @@ const busy = ref(false)
 watch(
   () => props.order?.id,
   () => {
-    awbDraft.value = props.order?.awbNumber || props.order?.trackingNumber || ''
+    awbDraft.value = ''
     problemDraft.value = props.order?.problemNote || ''
   },
   { immediate: true },
@@ -280,12 +280,12 @@ function stepClass(step: StepDef) {
               @submit.prevent="validateAwb"
             >
               <label class="text-sm font-medium" for="awb">Nomor resi</label>
-              <Input id="awb" v-model="awbDraft" placeholder="Scan atau ketik resi" class="font-mono" />
+              <Input id="awb" v-model="awbDraft" placeholder="Scan resi" class="font-mono" autocomplete="off" />
               <p v-if="order.trackingNumber && !order.awbValidatedAt" class="text-xs text-muted-foreground">
                 Shopify sudah punya resi {{ order.trackingNumber }}. Tetap harus dicek sebelum siap pickup.
               </p>
               <p class="text-xs text-muted-foreground">Resi yang cocok membuat order ini siap pickup.</p>
-              <Button type="submit" :disabled="busy">Resi sudah dicek</Button>
+              <Button type="submit" :disabled="busy">Validate Resi</Button>
             </form>
             <div v-else-if="order.warehouseStep === 'siap_pickup'" class="mt-3 space-y-2">
               <p class="rounded-lg bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-900">

@@ -63,7 +63,8 @@ export function afterResi(current: string): WarehouseStep | null {
 }
 
 export function afterPickup(current: string): WarehouseStep | null {
-  return current === 'ajukan_pickup' ? 'form_pengiriman' : null
+  if (current === 'buat_resi' || current === 'ajukan_pickup') return 'form_pengiriman'
+  return null
 }
 
 export function suggestChannel(

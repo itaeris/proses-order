@@ -23,6 +23,9 @@ export interface ShipmentRecord {
   cost: number | null
   status: string
   errorDetail: string | null
+  pickupDate?: string | null
+  pickupTime?: string | null
+  pickupVehicle?: string | null
 }
 
 export interface IndocoliteQuote {
@@ -394,21 +397,33 @@ export async function requestIndocolitePickup(input: { orderId: string; date: st
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) throw new ClientError('Tanggal pickup tidak valid')
   if (!/^\d{2}:\d{2}$/.test(input.time)) throw new ClientError('Jam pickup tidak valid')
   if (!['Motor', 'Mobil', 'Truk'].includes(input.vehicle)) throw new ClientError('Kendaraan pickup tidak valid')
-  await pakeet(`/api/v1/shipments/${record.shipmentId}/pickup`, {
-    method: 'POST',
-    body: JSON.stringify({
-      pickup_date: input.date,
-      pickup_time: input.time,
-      pickup_vehicle: input.vehicle,
-    }),
-  })
+  try {
+    await pakeet(`/api/v1/shipments/${record.shipmentId}/pickup`, {
+      method: 'POST',
+      body: JSON.stringify({
+        pickup_date: input.date,
+        pickup_time: input.time,
+        pickup_vehicle: input.vehicle,
+      }),
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : ''
+    if (!/sudah|already/i.test(message)) throw error
+  }
+  const saved: ShipmentRecord = {
+    ...record,
+    pickupDate: input.date,
+    pickupTime: input.time,
+    pickupVehicle: input.vehicle,
+  }
+  await saveShipment(order.id, saved)
   const next = afterPickup(order.warehouse_step)
   await touch(order.id, {
     channel_step: 'konfirmasi',
     channel_done: 1,
     ...(next ? { warehouse_step: next } : {}),
   })
-  return record
+  return saved
 }
 
 async function requireIndocolite(orderId: string): Promise<JoinedRow> {

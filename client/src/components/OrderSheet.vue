@@ -234,7 +234,7 @@ function stepClass(step: StepDef) {
                 Kurir ini dipakai
               </Button>
             </div>
-            <template v-else-if="order.warehouseStep === 'buat_resi' || order.warehouseStep === 'ajukan_pickup'">
+            <template v-if="order.warehouseStep === 'buat_resi' || order.warehouseStep === 'ajukan_pickup' || order.warehouseStep === 'form_pengiriman' || order.warehouseStep === 'konfirmasi' || order.warehouseStep === 'validasi_awb'">
               <IndocoliteShip
                 v-if="order.channel === 'indocolite'"
                 class="mt-3"
@@ -253,37 +253,29 @@ function stepClass(step: StepDef) {
                 :order-id="order.id"
                 @changed="emit('changed', $event)"
               />
-              <Button
-                v-if="order.warehouseStep === 'buat_resi' && order.awbNumber"
-                class="mt-3"
-                type="button"
-                :disabled="busy"
-                @click="act({ action: 'advance_warehouse' }, 'Lanjut ke ajukan pickup')"
-              >
+            </template>
+            <div v-if="order.warehouseStep === 'buat_resi' && order.awbNumber" class="mt-3">
+              <Button type="button" :disabled="busy" @click="act({ action: 'advance_warehouse' }, 'Lanjut ke ajukan pickup')">
                 Resi sudah ada, lanjut
               </Button>
-              <Button
-                v-if="order.warehouseStep === 'ajukan_pickup'"
-                class="mt-3"
-                type="button"
-                :disabled="busy"
-                @click="act({ action: 'advance_warehouse' }, 'Pickup diajukan')"
-              >
+            </div>
+            <div v-if="order.warehouseStep === 'ajukan_pickup' && order.channel !== 'indocolite'" class="mt-3">
+              <Button type="button" :disabled="busy" @click="act({ action: 'advance_warehouse' }, 'Pickup diajukan')">
                 Pickup diajukan
               </Button>
-            </template>
-            <div v-else-if="order.warehouseStep === 'form_pengiriman'" class="mt-3">
+            </div>
+            <div v-if="order.warehouseStep === 'form_pengiriman'" class="mt-3">
               <Button type="button" :disabled="busy" @click="act({ action: 'advance_warehouse' }, 'Form kiriman dicatat')">
                 Form sudah diisi
               </Button>
             </div>
-            <div v-else-if="order.warehouseStep === 'konfirmasi'" class="mt-3">
+            <div v-if="order.warehouseStep === 'konfirmasi'" class="mt-3">
               <Button type="button" :disabled="busy" @click="act({ action: 'advance_warehouse' }, 'Pengiriman dikonfirmasi')">
                 Pengiriman dikonfirmasi
               </Button>
             </div>
             <form
-              v-else-if="order.warehouseStep === 'validasi_awb'"
+              v-if="order.warehouseStep === 'validasi_awb'"
               class="mt-4 space-y-2"
               @submit.prevent="validateAwb"
             >

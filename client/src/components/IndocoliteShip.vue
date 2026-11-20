@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
+import PickupSchedule from '@/components/PickupSchedule.vue'
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
 import type { OrderView } from '@/lib/types'
@@ -26,6 +27,9 @@ interface Shipment {
   cost: number | null
   status: string
   errorDetail?: string | null
+  pickupDate?: string | null
+  pickupTime?: string | null
+  pickupVehicle?: string | null
 }
 
 interface Quote {
@@ -120,8 +124,14 @@ async function refresh() {
       method: 'POST',
       body: JSON.stringify({ action: 'refresh' }),
     })
+    const previousAwb = quote.value?.shipment?.awb
+    const previousStatus = quote.value?.shipment?.status
     if (quote.value) quote.value = { ...quote.value, shipment: data.shipment }
     if (data.order) emit('changed', data.order)
+    if (data.shipment.awb && data.shipment.awb !== previousAwb) toast.success(`Resi ${data.shipment.awb}`)
+    else if (data.shipment.status !== previousStatus) toast.success(`Status jadi ${data.shipment.status}`)
+    else if (!data.shipment.awb) toast.info('Nomor resi belum keluar. Coba lagi sebentar.')
+    else toast.success(`Resi ${data.shipment.awb}`)
   } catch (error) {
     toast.error(error instanceof Error ? error.message : 'Status resi gagal dicek')
   } finally {
@@ -153,6 +163,12 @@ async function pickup() {
 
 function rupiah(value: number) {
   return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(value)
+}
+
+function shownDate(value: string) {
+  const [year, month, day] = value.split('-')
+  if (!year || !month || !day) return value
+  return `${day}/${month}/${year}`
 }
 
 function tomorrow() {
@@ -198,20 +214,15 @@ function tomorrow() {
       </div>
 
       <Button v-if="quote.shipment && !quote.shipment.awb" variant="outline" type="button" :disabled="busy" @click="refresh">
-        Cek status resi
+        {{ busy ? 'Mengecek…' : 'Cek status resi' }}
       </Button>
 
-      <form v-if="quote.shipment?.shipmentId" class="space-y-2" @submit.prevent="pickup">
+      <p v-if="quote.shipment?.pickupDate" class="text-sm">
+        Pickup {{ shownDate(quote.shipment.pickupDate) }} pukul {{ quote.shipment.pickupTime }}, {{ quote.shipment.pickupVehicle }}.
+      </p>
+      <form v-else-if="quote.shipment?.shipmentId" class="space-y-2" @submit.prevent="pickup">
         <p class="text-sm font-medium">Ajukan pickup</p>
-        <div class="grid grid-cols-3 gap-2">
-          <input v-model="pickupDate" type="date" class="h-8 rounded-lg border bg-background px-2 text-xs" />
-          <input v-model="pickupTime" type="time" class="h-8 rounded-lg border bg-background px-2 text-xs" />
-          <select v-model="pickupVehicle" class="h-8 rounded-lg border bg-background px-2 text-xs">
-            <option>Motor</option>
-            <option>Mobil</option>
-            <option>Truk</option>
-          </select>
-        </div>
+        <PickupSchedule v-model:date="pickupDate" v-model:time="pickupTime" v-model:vehicle="pickupVehicle" />
         <Button type="submit" :disabled="busy">Ajukan pickup</Button>
       </form>
     </template>

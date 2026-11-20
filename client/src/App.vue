@@ -310,7 +310,7 @@ function onChanged(order: OrderView) {
   managed.value = order
   const index = orders.value.findIndex((item) => item.id === order.id)
   if (index >= 0) orders.value[index] = order
-  void load()
+  void load(true, true)
   void loadStatus()
 }
 

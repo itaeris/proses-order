@@ -145,6 +145,13 @@ async function saveShipment(orderId: string, record: BiteshipShipment) {
   await setSetting(shipmentKey(orderId), JSON.stringify(record))
 }
 
+export async function probeBiteship() {
+  if (!process.env.BITESHIP_API_KEY?.trim()) throw new ClientError('Kunci belum diisi')
+  const body = await call('/v1/wallets')
+  const balance = Number(body.wallet?.balance)
+  return { detail: 'Aktif', balance: Number.isFinite(balance) ? balance : null }
+}
+
 export async function biteshipBalance(): Promise<number | null> {
   try {
     const body = await call('/v1/wallets')

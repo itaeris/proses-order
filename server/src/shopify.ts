@@ -92,6 +92,32 @@ export async function accessToken() {
   return cachedToken
 }
 
+export async function probeShopify() {
+  const config = shopifyConfig()
+  if (!config.configured) throw new Error('Kunci belum diisi')
+  const token = await accessToken()
+  let response: Response
+  try {
+    response = await fetch(`https://${config.shop}/admin/api/${config.version}/graphql.json`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Shopify-Access-Token': token,
+      },
+      body: JSON.stringify({ query: '{ shop { name } }' }),
+    })
+  } catch (error) {
+    throw networkError(error)
+  }
+  if (!response.ok) throw new Error(`Shopify menolak permintaan (${response.status})`)
+  const body = (await response.json()) as { data?: { shop?: { name?: string } }; errors?: Array<{ message?: string }> }
+  if (body.errors?.length && !body.data?.shop?.name) {
+    throw new Error(body.errors.map((error) => error.message || 'Shopify menolak permintaan').join('; '))
+  }
+  const name = body.data?.shop?.name?.trim()
+  return name ? `Aktif, ${name}` : 'Aktif'
+}
+
 interface Money {
   amount?: string
   currencyCode?: string

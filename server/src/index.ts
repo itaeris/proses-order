@@ -21,6 +21,7 @@ import { ensureDatabase, getJoined, getRules, getSyncState } from './db.js'
 import { biteshipBalance, biteshipQuote, createBiteshipShipment, refreshBiteshipShipment } from './biteship.js'
 import { pickupOrders, recallOrders, refreshOrders, shipOrders } from './bulk.js'
 import { openCache } from './cache.js'
+import { connectionStatus } from './connections.js'
 import { createDhlShipment, dhlLabel, dhlQuote, refreshDhlShipment } from './dhl.js'
 import {
   createIndocoliteShipment,
@@ -181,6 +182,14 @@ app.get('/api/status', async (_req, res, next) => {
       syncing: syncInFlight(),
       usingSample: await hasActiveSample(),
     })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.get('/api/connections', async (_req, res, next) => {
+  try {
+    res.json({ connections: await connectionStatus() })
   } catch (error) {
     next(error)
   }

@@ -8,6 +8,8 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import ConnectionsPanel from '@/components/ConnectionsPanel.vue'
+import RoutingPanel from '@/components/RoutingPanel.vue'
 import { api } from '@/lib/api'
 import type { SessionUser } from '@/components/LoginPage.vue'
 
@@ -156,8 +158,10 @@ async function createUser() {
         Beranda
       </Button>
       <TabsList>
-        <TabsTrigger value="profile">Profil</TabsTrigger>
-        <TabsTrigger v-if="admin" value="users">Pengguna</TabsTrigger>
+        <TabsTrigger value="profile" class="cursor-pointer">Profil</TabsTrigger>
+        <TabsTrigger value="shipping" class="cursor-pointer">Metode kirim</TabsTrigger>
+        <TabsTrigger value="connections" class="cursor-pointer">Koneksi</TabsTrigger>
+        <TabsTrigger v-if="admin" value="users" class="cursor-pointer">Pengguna</TabsTrigger>
       </TabsList>
     </div>
 
@@ -194,6 +198,14 @@ async function createUser() {
           <Button type="submit" :disabled="savingPassword">Simpan kata sandi</Button>
         </form>
       </div>
+    </TabsContent>
+
+    <TabsContent value="shipping" class="mt-0 min-h-0 flex-1 overflow-auto">
+      <RoutingPanel />
+    </TabsContent>
+
+    <TabsContent value="connections" class="mt-0 min-h-0 flex-1 overflow-auto">
+      <ConnectionsPanel />
     </TabsContent>
 
     <TabsContent v-if="admin" value="users" class="mt-0 flex min-h-0 flex-col overflow-hidden rounded-xl border bg-card shadow-xs">

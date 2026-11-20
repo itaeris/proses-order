@@ -77,6 +77,30 @@ async function call(path: string, init?: RequestInit): Promise<Record<string, un
   throw new ClientError(dhlMessage(body, response.status))
 }
 
+export async function probeDhl() {
+  const apiKey = process.env.DHL_API_KEY?.trim() ?? ''
+  const apiSecret = process.env.DHL_API_SECRET?.trim() ?? ''
+  const account = process.env.DHL_ACCOUNT_NUMBER?.trim() ?? ''
+  if (!apiKey || !apiSecret || !account) throw new ClientError('Kunci belum diisi')
+  const postal = process.env.PAKEET_SENDER_POSTAL_CODE?.trim() || '12920'
+  const city = process.env.PAKEET_SENDER_CITY?.trim() || 'Jakarta'
+  const url = `${base()}/address-validate?type=delivery&countryCode=ID&postalCode=${encodeURIComponent(postal)}&cityName=${encodeURIComponent(city)}`
+  let response: Response
+  try {
+    response = await fetch(url, {
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${apiKey}:${apiSecret}`).toString('base64')}`,
+        Accept: 'application/json',
+      },
+    })
+  } catch {
+    throw new ClientError('Tidak terjangkau')
+  }
+  if (response.status === 401 || response.status === 403) throw new ClientError('Kunci ditolak')
+  if (response.ok || response.status === 400) return 'Aktif'
+  throw new ClientError(`DHL menolak permintaan (${response.status})`)
+}
+
 function dhlMessage(body: Record<string, unknown>, status: number) {
   const reasons = Array.isArray(body.reasons)
     ? body.reasons.flatMap((row) => {

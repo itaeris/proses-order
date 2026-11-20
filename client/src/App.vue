@@ -6,7 +6,6 @@ import { toast } from 'vue-sonner'
 import BulkShipPanel from '@/components/BulkShipPanel.vue'
 import LoginPage, { type SessionUser } from '@/components/LoginPage.vue'
 import OrderSheet from '@/components/OrderSheet.vue'
-import RoutingPanel from '@/components/RoutingPanel.vue'
 import SettingsPanel from '@/components/SettingsPanel.vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -108,7 +107,6 @@ const queueTabs = [
   { value: 'active', label: 'Antrian' },
   { value: 'awaiting_awb', label: 'Menunggu resi' },
   { value: 'ready', label: 'Siap pickup' },
-  { value: 'routing', label: 'Metode kirim' },
 ]
 const allSelected = computed(() => orders.value.length > 0 && orders.value.every((order) => selectedIds.value.includes(order.id)))
 const someSelected = computed(() => selectedIds.value.length > 0 && !allSelected.value)
@@ -165,7 +163,7 @@ async function load(silent = false, fresh = false) {
   if (awb.value !== 'all') params.set('awb', awb.value)
   if (overdueOnly.value) params.set('overdue', '1')
   if (unclaimedOnly.value) params.set('unclaimed', '1')
-  params.set('view', view.value === 'routing' ? 'active' : view.value)
+  params.set('view', view.value)
   if (!silent) loading.value = true
   const attempts = silent ? 1 : 3
   let lastError: unknown
@@ -779,11 +777,7 @@ onUnmounted(() => {
         </TabsList>
       </Tabs>
 
-      <div v-if="view === 'routing'" class="min-h-0 flex-1 overflow-auto">
-        <RoutingPanel />
-      </div>
-
-      <section v-else class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border bg-card shadow-xs">
+      <section class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border bg-card shadow-xs">
         <div class="flex shrink-0 flex-wrap items-center gap-2 border-b p-3">
           <div class="relative min-w-56 flex-1">
             <SearchIcon class="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />

@@ -63,8 +63,8 @@ async function save() {
     <div class="flex flex-wrap items-center justify-between gap-3">
       <h2 class="text-base font-semibold">Metode kirim</h2>
       <div class="flex gap-2">
-        <Button variant="outline" type="button" @click="addRule">Tambah</Button>
-        <Button type="button" :disabled="saving" @click="save">Simpan</Button>
+        <Button variant="outline" type="button" class="cursor-pointer" @click="addRule">Tambah</Button>
+        <Button type="button" class="cursor-pointer" :disabled="saving" @click="save">Simpan</Button>
       </div>
     </div>
     <p class="mt-1 max-w-2xl text-sm text-muted-foreground">
@@ -93,7 +93,7 @@ async function save() {
           size="icon-sm"
           type="button"
           aria-label="Hapus"
-          class="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+          class="cursor-pointer text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
           @click="pendingIndex = index"
         >
           <Trash2Icon />
@@ -111,8 +111,8 @@ async function save() {
             Aturan ini hilang dari daftar. Tekan Simpan supaya perubahannya berlaku.
           </DialogDescription>
           <div class="mt-4 flex justify-end gap-2">
-            <Button variant="outline" type="button" @click="pendingIndex = null">Batal</Button>
-            <Button type="button" class="bg-destructive text-white hover:bg-destructive/90" @click="confirmRemove">Hapus</Button>
+            <Button variant="outline" type="button" class="cursor-pointer" @click="pendingIndex = null">Batal</Button>
+            <Button type="button" class="cursor-pointer bg-destructive text-white hover:bg-destructive/90" @click="confirmRemove">Hapus</Button>
           </div>
         </DialogContent>
       </DialogPortal>

@@ -39,7 +39,7 @@ interface Quote {
   notice: string | null
 }
 
-const props = defineProps<{ orderId: string; manual?: boolean }>()
+const props = defineProps<{ orderId: string }>()
 const emit = defineEmits<{ changed: [order: OrderView] }>()
 
 const quote = ref<Quote | null>(null)
@@ -49,10 +49,10 @@ const pickupTime = ref('10:00')
 const pickupVehicle = ref('Motor')
 const shownRates = computed(() => {
   if (!quote.value) return []
-  return props.manual ? quote.value.rates : quote.value.shopifyRates
+  return quote.value.shopifyRates
 })
 const offer = computed(() => cheapest(shownRates.value.length ? shownRates.value : (quote.value?.rates ?? [])))
-const shopifyCourier = computed(() => !props.manual && shownRates.value.length > 0)
+const shopifyCourier = computed(() => shownRates.value.length > 0)
 
 watch(
   () => props.orderId,
@@ -163,7 +163,7 @@ function tomorrow() {
     </div>
     <p v-if="!quote" class="text-sm text-muted-foreground">Memuat ongkir…</p>
     <template v-else>
-      <p v-if="quote.notice && !(manual && quote.notice.includes('lewat Manual'))" class="text-xs text-muted-foreground">{{ quote.notice }}</p>
+      <p v-if="quote.notice" class="text-xs text-muted-foreground">{{ quote.notice }}</p>
       <p v-if="quote.shipment?.awb" class="text-sm font-medium">
         <span class="font-mono">{{ quote.shipment.awb }}</span>
         <span v-if="quote.shipment.cost != null" class="font-normal text-muted-foreground"> · {{ rupiah(quote.shipment.cost) }}</span>

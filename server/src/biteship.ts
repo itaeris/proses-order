@@ -222,10 +222,10 @@ export async function biteshipQuote(orderId: string): Promise<BiteshipQuote> {
     biteshipBalance(),
   ])
   const rates = readRates(body)
-  const shopifyRates = order.indocolite_mode === 'manual' ? rates : matchingRates(order.delivery_method, rates)
+  const shopifyRates = matchingRates(order.delivery_method, rates)
   const shipment = await loadShipment(order.id)
   let notice: string | null = null
-  if (order.delivery_method && order.indocolite_mode !== 'manual' && shopifyRates.length === 0) {
+  if (order.delivery_method && shopifyRates.length === 0) {
     notice = `Shopify sudah memilih ${order.delivery_method}. Tarif kurir itu tidak ada di Biteship, jadi dipakai yang termurah.`
   }
   return {
@@ -256,9 +256,9 @@ export async function createBiteshipShipment(input: {
   if (!rate || Math.round(rate.cost) !== Math.round(input.cost)) {
     throw new ClientError('Ongkir itu sudah tidak berlaku. Muat ulang daftarnya.')
   }
-  const allowed = order.indocolite_mode === 'manual' ? quote.rates : quote.shopifyRates.length > 0 ? quote.shopifyRates : quote.rates
+  const allowed = quote.shopifyRates.length > 0 ? quote.shopifyRates : quote.rates
   if (!allowed.some((row) => row.company === rate.company && row.serviceCode === rate.serviceCode)) {
-    throw new ClientError('Kurir ini bukan pilihan Shopify. Ganti kurir hanya lewat Manual.')
+    throw new ClientError('Kurir ini bukan pilihan Shopify.')
   }
   const from = sender()
   const to = parseAddress(order.shipping_address)

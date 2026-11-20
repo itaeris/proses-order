@@ -189,8 +189,8 @@ export async function createIndocoliteShipment(input: {
     throw new ClientError('Ongkir itu sudah tidak berlaku. Muat ulang daftarnya.')
   }
   const shopifyHasRate = quote.shopifyRates.length > 0
-  if (shopifyHasRate && order.delivery_method && order.indocolite_mode !== 'manual' && !matchesShopifyMethod(order.delivery_method, rate.shippingName)) {
-    throw new ClientError('Kurir ini bukan pilihan Shopify. Ganti kurir hanya lewat Manual.')
+  if (shopifyHasRate && order.delivery_method && !matchesShopifyMethod(order.delivery_method, rate.shippingName)) {
+    throw new ClientError('Kurir ini bukan pilihan Shopify.')
   }
   const from = sender()
   const to = quote.recipient

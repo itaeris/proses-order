@@ -274,7 +274,7 @@ function stepClass(step: StepDef) {
               {{ order.deliveryMethod }}
               <span class="font-normal text-muted-foreground">· dari Shopify</span>
             </p>
-            <div v-if="!order.deliveryMethod || order.channel === 'unassigned' || order.indocoliteMode === 'manual'" class="mt-2 flex flex-wrap gap-2">
+            <div v-if="!order.deliveryMethod || order.channel === 'unassigned'" class="mt-2 flex flex-wrap gap-2">
               <Button
                 v-for="channel in (['indocolite', 'biteship', 'dhl'] as const)"
                 :key="channel"
@@ -287,26 +287,16 @@ function stepClass(step: StepDef) {
                 {{ CHANNEL_LABEL[channel] }}
               </Button>
             </div>
-            <div v-if="order.deliveryMethod || order.channel === 'indocolite'" class="mt-2 flex gap-2">
-              <Button size="sm" type="button" :variant="order.indocoliteMode === 'manual' ? 'default' : 'outline'" :disabled="busy" @click="act({ action: 'set_mode', mode: 'manual' })">
-                Manual
-              </Button>
-              <Button size="sm" type="button" :variant="order.indocoliteMode === 'otomatis' ? 'default' : 'outline'" :disabled="busy" @click="act({ action: 'set_mode', mode: 'otomatis' })">
-                Otomatis
-              </Button>
-            </div>
             <IndocoliteShip
               v-if="order.channel === 'indocolite'"
               class="mt-3"
               :order-id="order.id"
-              :manual="order.indocoliteMode === 'manual'"
               @changed="emit('changed', $event)"
             />
             <BiteshipShip
               v-if="order.channel === 'biteship'"
               class="mt-3"
               :order-id="order.id"
-              :manual="order.indocoliteMode === 'manual'"
               @changed="emit('changed', $event)"
             />
             <DhlShip
@@ -324,7 +314,7 @@ function stepClass(step: StepDef) {
               </li>
             </ol>
             <Button
-              v-if="!order.channelDone && order.channel !== 'unassigned' && !order.needsMode"
+              v-if="!order.channelDone && order.channel !== 'unassigned'"
               class="mt-3"
               variant="outline"
               type="button"
@@ -333,7 +323,6 @@ function stepClass(step: StepDef) {
             >
               Tandai {{ currentChannel?.label }} selesai
             </Button>
-            <p v-else-if="order.needsMode" class="mt-3 text-sm text-muted-foreground">Pilih pengiriman manual atau otomatis.</p>
           </section>
 
         </div>

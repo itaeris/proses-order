@@ -39,7 +39,7 @@ async function one(id: string): Promise<BulkShipResult> {
 
 async function createCheapest(order: JoinedRow) {
   if (order.channel === 'indocolite') return indocolite(order.id)
-  if (order.channel === 'biteship') return biteship(order.id, order.indocolite_mode === 'manual')
+  if (order.channel === 'biteship') return biteship(order.id)
   if (order.channel === 'dhl') return dhl(order.id)
   throw new ClientError('Kurir belum dipilih')
 }
@@ -59,9 +59,9 @@ async function indocolite(orderId: string) {
   return shipment.awb
 }
 
-async function biteship(orderId: string, manual: boolean) {
+async function biteship(orderId: string) {
   const quote = await biteshipQuote(orderId)
-  const pool = manual || quote.shopifyRates.length === 0 ? quote.rates : quote.shopifyRates
+  const pool = quote.shopifyRates.length === 0 ? quote.rates : quote.shopifyRates
   const rate = cheapest(pool)
   if (!rate) throw new ClientError('Tarif Biteship tidak ditemukan')
   const shipment = await createBiteshipShipment({

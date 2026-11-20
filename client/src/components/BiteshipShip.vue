@@ -35,7 +35,7 @@ interface Quote {
   notice: string | null
 }
 
-const props = defineProps<{ orderId: string; manual?: boolean }>()
+const props = defineProps<{ orderId: string }>()
 const emit = defineEmits<{ changed: [order: OrderView] }>()
 
 const quote = ref<Quote | null>(null)
@@ -44,10 +44,10 @@ const busy = ref(false)
 
 const shownRates = computed(() => {
   if (!quote.value) return []
-  return props.manual ? quote.value.rates : quote.value.shopifyRates
+  return quote.value.shopifyRates
 })
 const offer = computed(() => cheapest(shownRates.value.length ? shownRates.value : (quote.value?.rates ?? [])))
-const shopifyCourier = computed(() => !props.manual && shownRates.value.length > 0)
+const shopifyCourier = computed(() => shownRates.value.length > 0)
 
 watch(
   () => props.orderId,
@@ -132,7 +132,7 @@ function rupiah(value: number) {
     <p v-if="!quote && !error" class="text-sm text-muted-foreground">Memuat ongkir…</p>
     <p v-else-if="error && !quote" class="text-sm text-rose-800">{{ error }}</p>
     <template v-else-if="quote">
-      <p v-if="quote.notice && !(manual && quote.notice.includes('lewat Manual'))" class="text-xs text-muted-foreground">{{ quote.notice }}</p>
+      <p v-if="quote.notice" class="text-xs text-muted-foreground">{{ quote.notice }}</p>
       <p class="text-xs text-muted-foreground">Gudang {{ quote.originPostalCode }} → {{ quote.destinationPostalCode }}</p>
       <p v-if="quote.shipment?.awb" class="text-sm font-medium">
         <span class="font-mono">{{ quote.shipment.awb }}</span>

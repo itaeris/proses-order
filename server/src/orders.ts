@@ -74,7 +74,7 @@ export function toView(row: JoinedRow, now = Date.now()): OrderView {
   const channel = asChannel(row.channel)
   const warehouseStep = asWarehouse(row.warehouse_step)
   const mode = row.indocolite_mode
-  const defs = channelStepDefs(channel, mode)
+  const defs = channelStepDefs(channel)
   const overdue = isOverdue({
     createdAt: row.created_at,
     fulfillBy: row.fulfill_by,
@@ -110,10 +110,10 @@ export function toView(row: JoinedRow, now = Date.now()): OrderView {
     channel,
     channelLocked: row.channel_locked === 1,
     indocoliteMode: mode,
-    needsMode: channel === 'indocolite' && mode !== 'manual' && mode !== 'otomatis',
+    needsMode: false,
     channelStep: row.channel_step,
     channelDone: row.channel_done === 1,
-    channelSteps: decorateSteps(defs, row.channel_step, row.channel_done === 1),
+    channelSteps: decorateSteps(defs, row.channel_step === 'pengiriman_manual' ? 'antrian' : row.channel_step, row.channel_done === 1),
     warehouseStep,
     warehouseSteps: decorateSteps(WAREHOUSE_STEPS, warehouseStep, warehouseStep === 'siap_pickup'),
     awbNumber: row.awb_number,
@@ -285,13 +285,13 @@ export async function applyAction(id: string, body: ActionBody, actor = ''): Pro
       throw new ClientError('Channel tidak dikenal')
     }
     if (row.channel === channel) return toView(await requireOrder(id))
-    if (row.delivery_method && row.indocolite_mode !== 'manual') {
-      throw new ClientError('Metode kirim sudah dipilih di Shopify. Ganti kurir hanya lewat Manual.')
+    if (row.delivery_method) {
+      throw new ClientError('Metode kirim sudah dipilih di Shopify.')
     }
     await touch(id, {
       channel,
       channel_locked: 1,
-      indocolite_mode: row.indocolite_mode === 'manual' ? 'manual' : null,
+      indocolite_mode: channel === 'indocolite' ? 'otomatis' : null,
       channel_step: 'antrian',
       channel_done: 0,
       awb_validated_at: null,
@@ -321,11 +321,8 @@ export async function applyAction(id: string, body: ActionBody, actor = ''): Pro
     }
   } else if (action === 'advance_channel') {
     if (row.channel === 'unassigned') throw new ClientError('Pilih channel kurir dulu')
-    if (row.channel === 'indocolite' && row.indocolite_mode !== 'manual' && row.indocolite_mode !== 'otomatis') {
-      throw new ClientError('Pilih pengiriman manual atau otomatis')
-    }
     if (row.channel_done === 1) throw new ClientError('Langkah kurir sudah selesai')
-    const steps = channelStepDefs(asChannel(row.channel), row.indocolite_mode)
+    const steps = channelStepDefs(asChannel(row.channel))
     const index = steps.findIndex((step) => step.id === row.channel_step)
     const at = index < 0 ? 0 : index
     if (at >= steps.length - 1) {
@@ -337,7 +334,7 @@ export async function applyAction(id: string, body: ActionBody, actor = ''): Pro
     if (row.channel_done === 1) {
       await touch(id, { channel_done: 0 })
     } else {
-      const steps = channelStepDefs(asChannel(row.channel), row.indocolite_mode)
+      const steps = channelStepDefs(asChannel(row.channel))
       const index = steps.findIndex((step) => step.id === row.channel_step)
       if (index <= 0) throw new ClientError('Sudah di langkah pertama')
       await touch(id, { channel_step: steps[index - 1].id })

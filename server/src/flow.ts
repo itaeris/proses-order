@@ -63,27 +63,15 @@ export function suggestChannel(
   return 'unassigned'
 }
 
-export function channelStepDefs(
-  channel: ChannelId,
-  mode: string | null,
-): Array<Omit<StepDef, 'state'>> {
+export function channelStepDefs(channel: ChannelId): Array<Omit<StepDef, 'state'>> {
   if (channel === 'biteship') return BITESHIP
   if (channel === 'dhl') return DHL
   if (channel === 'indocolite') {
-    if (mode === 'manual') {
-      return [
-        { id: 'antrian', label: 'Antrian' },
-        { id: 'pengiriman_manual', label: 'Pengiriman manual' },
-      ]
-    }
-    if (mode === 'otomatis') {
-      return [
-        { id: 'antrian', label: 'Antrian' },
-        { id: 'form_pengiriman', label: 'Form buat pengiriman' },
-        { id: 'konfirmasi', label: 'Konfirmasi pengiriman' },
-      ]
-    }
-    return [{ id: 'antrian', label: 'Antrian' }]
+    return [
+      { id: 'antrian', label: 'Antrian' },
+      { id: 'form_pengiriman', label: 'Form buat pengiriman' },
+      { id: 'konfirmasi', label: 'Konfirmasi pengiriman' },
+    ]
   }
   return []
 }

@@ -53,6 +53,10 @@ const shownRates = computed(() => {
 })
 const offer = computed(() => cheapest(shownRates.value.length ? shownRates.value : (quote.value?.rates ?? [])))
 const shopifyCourier = computed(() => shownRates.value.length > 0)
+const canCreate = computed(() => {
+  const shipment = quote.value?.shipment
+  return !shipment?.awb && (!shipment || shipment.status === 'failed')
+})
 
 watch(
   () => props.orderId,
@@ -98,7 +102,7 @@ async function create(rate: Rate) {
     })
     if (quote.value) quote.value = { ...quote.value, shipment: data.shipment }
     if (data.order) emit('changed', data.order)
-    toast.success(data.shipment.awb ? `Resi ${data.shipment.awb}` : 'Permintaan resi dikirim')
+    toast.success(data.shipment.awb ? `Resi ${data.shipment.awb}` : 'Resi masih diproses. Tekan Cek status resi.')
   } catch (error) {
     toast.error(error instanceof Error ? error.message : 'Resi gagal dibuat')
   } finally {
@@ -180,7 +184,7 @@ function tomorrow() {
       <p v-if="quote.origin" class="text-xs text-muted-foreground">Gudang: {{ quote.origin.label }}</p>
       <p v-if="quote.destination" class="text-xs text-muted-foreground">Tujuan: {{ quote.destination.label }}</p>
 
-      <div v-if="!quote.shipment?.awb && offer" class="space-y-2">
+      <div v-if="canCreate && offer" class="space-y-2">
         <p class="text-sm">
           {{ offer.shippingName }} {{ offer.serviceName }}
           <span class="text-muted-foreground"> · {{ rupiah(offer.cost) }}</span>

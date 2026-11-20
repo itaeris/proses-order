@@ -177,8 +177,10 @@ export async function createIndocoliteShipment(input: {
 }) {
   const order = await requireIndocolite(input.orderId)
   const existing = await loadShipment(input.orderId)
-  if (existing?.awb || existing?.status === 'completed' || existing?.status === 'queued' || existing?.status === 'processing') {
-    throw new ClientError('Pengiriman untuk order ini sudah dibuat')
+  if (existing && existing.status !== 'failed') {
+    const settled = existing.awb ? existing : await settle(input.orderId, existing)
+    if (settled.awb && !order.awb_number) await touch(input.orderId, { awb_number: settled.awb })
+    return settled
   }
   const quote = await indocoliteQuote(input.orderId, input.destinationId)
   const origin = quote.origin
@@ -282,15 +284,24 @@ async function settle(orderId: string, record: ShipmentRecord): Promise<Shipment
       throw new ClientError('Status Pakeet tidak diketahui. Jangan buat resi baru sebelum dicek ke Pakeet.')
     }
     if (status === 'completed' && data.shipment?.id) {
-      const label = await pakeet(`/api/v1/shipments/${data.shipment.id}/label`)
-      const awb = (label.data as { awb_number?: string } | undefined)?.awb_number ?? null
-      latest = { ...record, status: 'completed', shipmentId: data.shipment.id, awb }
+      latest = { ...record, status: 'processing', shipmentId: data.shipment.id, errorDetail: null }
+      await saveShipment(orderId, latest)
+      let awb: string | null = null
+      try {
+        const label = await pakeet(`/api/v1/shipments/${data.shipment.id}/label`)
+        awb = (label.data as { awb_number?: string } | undefined)?.awb_number ?? null
+      } catch (error) {
+        const message = error instanceof Error ? error.message : ''
+        if (!/label not available/i.test(message)) throw error
+      }
+      if (!awb) return latest
+      latest = { ...latest, status: 'completed', awb }
       await saveShipment(orderId, latest)
       await touch(orderId, {
         indocolite_mode: 'otomatis',
         channel_step: 'konfirmasi',
         channel_done: 0,
-        ...(awb ? { awb_number: awb } : {}),
+        awb_number: awb,
       })
       return latest
     }

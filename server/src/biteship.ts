@@ -293,7 +293,7 @@ export async function createBiteshipShipment(input: {
       items: [parcel(order, quote.weightKg)],
     }),
   })
-  dropCache('biteship:balance')
+  await dropCache('biteship:balance')
   const biteshipId = body.id || body.details?.order_id || null
   if (!biteshipId) throw new ClientError('Biteship tidak mengembalikan nomor order')
   const created = body.id ? body : await call(`/v1/orders/${biteshipId}`)

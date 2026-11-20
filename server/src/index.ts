@@ -20,6 +20,7 @@ import {
 import { ensureDatabase, getJoined, getRules, getSyncState } from './db.js'
 import { biteshipBalance, biteshipQuote, createBiteshipShipment, refreshBiteshipShipment } from './biteship.js'
 import { shipOrders } from './bulk.js'
+import { openCache } from './cache.js'
 import { createDhlShipment, dhlLabel, dhlQuote, refreshDhlShipment } from './dhl.js'
 import {
   createIndocoliteShipment,
@@ -405,6 +406,8 @@ function startWork() {
     console.error(error instanceof Error ? error.message : error)
   })
 }
+
+void openCache()
 
 if (!onVercel) {
   const port = Number(process.env.PORT || 8787)

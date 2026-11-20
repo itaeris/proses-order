@@ -143,7 +143,7 @@ export async function listJoined(): Promise<JoinedRow[]> {
 }
 
 export async function getJoined(id: string): Promise<JoinedRow | undefined> {
-  const listed = readCache<JoinedRow[]>('orders:list')?.find((row) => row.id === id)
+  const listed = (await readCache<JoinedRow[]>('orders:list'))?.find((row) => row.id === id)
   if (listed) return listed
   return remember(`orders:one:${id}`, ORDER_TTL, async () => {
     const { data, error } = await supabase.from('orders').select(joinedSelect).eq('id', id).maybeSingle()
@@ -180,13 +180,13 @@ export async function getSetting(key: string): Promise<string | null> {
 export async function setSetting(key: string, value: string) {
   const { error } = await supabase.from('app_settings').upsert({ key, value })
   fail(error)
-  writeCache(settingKey(key), value, SETTING_TTL)
+  await writeCache(settingKey(key), value, SETTING_TTL)
 }
 
 export async function deleteSetting(key: string) {
   const { error } = await supabase.from('app_settings').delete().eq('key', key)
   fail(error)
-  dropCache(settingKey(key))
+  await dropCache(settingKey(key))
 }
 
 export async function listSettings(prefix: string): Promise<Array<{ key: string; value: string }>> {
@@ -220,7 +220,7 @@ export async function setSyncState(patch: Partial<SyncState>) {
   }
   const { error } = await supabase.from('sync_state').upsert({ id: 1, ...next })
   fail(error)
-  writeCache('sync:state', next, ORDER_TTL)
+  await writeCache('sync:state', next, ORDER_TTL)
 }
 
 export async function updateProcess(row: ProcessRow) {
@@ -243,14 +243,14 @@ export async function updateProcess(row: ProcessRow) {
     })
     .eq('order_id', row.order_id)
   fail(error)
-  dropCache('orders:')
+  await dropCache('orders:')
 }
 
 export async function upsertOrders(rows: Array<Record<string, unknown>>) {
   if (rows.length === 0) return
   const { error } = await supabase.from('orders').upsert(rows, { onConflict: 'id' })
   fail(error)
-  dropCache('orders:')
+  await dropCache('orders:')
 }
 
 export async function existingProcessIds(ids: string[]): Promise<Set<string>> {
@@ -269,7 +269,7 @@ export async function insertProcessRows(rows: ProcessRow[]) {
   if (rows.length === 0) return
   const { error } = await supabase.from('order_process').insert(rows)
   fail(error)
-  dropCache('orders:')
+  await dropCache('orders:')
 }
 
 export async function deactivateOtherRuns(syncRun: string) {
@@ -278,7 +278,7 @@ export async function deactivateOtherRuns(syncRun: string) {
     .update({ active: 0, updated_at: new Date().toISOString() })
     .or(`sync_run.is.null,sync_run.neq.${syncRun}`)
   fail(error)
-  dropCache('orders:')
+  await dropCache('orders:')
 }
 
 export async function countOrders(): Promise<number> {

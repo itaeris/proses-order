@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { ChevronDownIcon, LogOutIcon, RefreshCwIcon, SearchIcon, SettingsIcon } from '@lucide/vue'
+import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon, ChevronDownIcon, LogOutIcon, RefreshCwIcon, SearchIcon, SettingsIcon } from '@lucide/vue'
 import { DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle, DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuTrigger } from 'reka-ui'
 import { toast } from 'vue-sonner'
 import LoginPage, { type SessionUser } from '@/components/LoginPage.vue'
@@ -9,6 +9,7 @@ import RoutingPanel from '@/components/RoutingPanel.vue'
 import SettingsPanel from '@/components/SettingsPanel.vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -48,7 +49,14 @@ const routePath = ref(window.location.pathname)
 const managed = ref<OrderView | null>(null)
 const manageLoading = ref(false)
 
+const queueTabs = computed(() => [
+  { value: 'active', label: `Antrian ${summary.value?.queue ?? ''}`.trim() },
+  { value: 'awaiting_awb', label: 'Menunggu resi' },
+  { value: 'ready', label: 'Siap pickup' },
+  { value: 'routing', label: 'Metode kirim' },
+])
 const allSelected = computed(() => orders.value.length > 0 && orders.value.every((order) => selectedIds.value.includes(order.id)))
+const someSelected = computed(() => selectedIds.value.length > 0 && !allSelected.value)
 const shipOk = computed(() => shipResult.value.filter((row) => row.ok).length)
 
 const manageCode = computed(() => {
@@ -248,6 +256,67 @@ function currentStep(order: OrderView) {
   return order.channelSteps.find((step) => step.state === 'current')?.label ?? (order.channelDone ? 'Selesai' : '—')
 }
 
+type SortKey = 'order' | 'entered' | 'customer' | 'courier' | 'channel' | 'step' | 'awb' | 'assignee'
+
+const sortColumns: { key: SortKey; label: string }[] = [
+  { key: 'order', label: 'Order' },
+  { key: 'entered', label: 'Masuk' },
+  { key: 'customer', label: 'Pelanggan' },
+  { key: 'courier', label: 'Kurir' },
+  { key: 'channel', label: 'Channel' },
+  { key: 'step', label: 'Langkah' },
+  { key: 'awb', label: 'Resi' },
+  { key: 'assignee', label: 'Petugas' },
+]
+const sortKey = ref<SortKey | ''>('')
+const sortDir = ref<'asc' | 'desc'>('asc')
+
+function toggleSort(key: SortKey) {
+  if (sortKey.value === key) {
+    sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc'
+    return
+  }
+  sortKey.value = key
+  sortDir.value = key === 'entered' ? 'desc' : 'asc'
+}
+
+function sortText(order: OrderView) {
+  if (sortKey.value === 'order') return order.name
+  if (sortKey.value === 'customer') return order.customerName
+  if (sortKey.value === 'courier') return order.deliveryMethod ?? ''
+  if (sortKey.value === 'channel') return CHANNEL_LABEL[order.channel]
+  if (sortKey.value === 'step') return currentStep(order)
+  if (sortKey.value === 'awb') return order.awbNumber ?? ''
+  return order.assignee ?? ''
+}
+
+const sortedOrders = computed(() => {
+  if (!sortKey.value) return orders.value
+  const dir = sortDir.value === 'asc' ? 1 : -1
+  return [...orders.value].sort((a, b) => {
+    if (sortKey.value === 'entered') {
+      const leftTime = new Date(a.createdAt).getTime()
+      const rightTime = new Date(b.createdAt).getTime()
+      const badLeft = Number.isNaN(leftTime)
+      const badRight = Number.isNaN(rightTime)
+      if (badLeft || badRight) {
+        if (badLeft && badRight) return 0
+        return badLeft ? 1 : -1
+      }
+      return (leftTime - rightTime) * dir
+    }
+    const left = sortText(a).trim()
+    const right = sortText(b).trim()
+    const emptyLeft = left === '' || left === '—'
+    const emptyRight = right === '' || right === '—'
+    if (emptyLeft || emptyRight) {
+      if (emptyLeft && emptyRight) return 0
+      return emptyLeft ? 1 : -1
+    }
+    return left.localeCompare(right, 'id', { numeric: true, sensitivity: 'base' }) * dir
+  })
+})
+
 let poll = 0
 
 function startPolling() {
@@ -318,9 +387,12 @@ onUnmounted(() => {
     <div v-else class="flex h-full min-h-0 min-w-0 flex-1 flex-col">
     <header class="shrink-0 border-b bg-background">
       <div class="flex flex-wrap items-center gap-3 px-4 py-3">
-        <div class="mr-auto">
-          <p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">Gudang</p>
-          <h1 class="text-lg font-semibold leading-none">Proses order</h1>
+        <div class="mr-auto flex items-center gap-2.5">
+          <img src="/favicon.svg" alt="" class="size-9" />
+          <div>
+            <p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">Gudang</p>
+            <h1 class="text-lg font-semibold leading-none">Proses order</h1>
+          </div>
         </div>
         <p v-if="status?.lastSyncAt" class="text-xs text-muted-foreground">
           Sync {{ when(status.lastSyncAt) }}
@@ -452,11 +524,15 @@ onUnmounted(() => {
       </section>
 
       <Tabs class="shrink-0" :model-value="view" @update:model-value="view = String($event)">
-        <TabsList>
-          <TabsTrigger value="active">Antrian {{ summary?.queue ?? '' }}</TabsTrigger>
-          <TabsTrigger value="awaiting_awb">Menunggu resi</TabsTrigger>
-          <TabsTrigger value="ready">Siap pickup</TabsTrigger>
-          <TabsTrigger value="routing">Metode kirim</TabsTrigger>
+        <TabsList class="h-auto gap-2 bg-transparent p-0">
+          <TabsTrigger
+            v-for="tab in queueTabs"
+            :key="tab.value"
+            :value="tab.value"
+            class="h-8 flex-none cursor-pointer rounded-md border border-border bg-background px-3 text-foreground shadow-xs hover:bg-muted data-active:border-primary data-active:bg-primary data-active:text-primary-foreground data-active:shadow-none"
+          >
+            {{ tab.label }}
+          </TabsTrigger>
         </TabsList>
       </Tabs>
 
@@ -520,26 +596,32 @@ onUnmounted(() => {
           <TableHeader>
             <TableRow>
               <TableHead class="w-10">
-                <input
-                  type="checkbox"
-                  class="size-4 cursor-pointer accent-foreground"
+                <Checkbox
                   :checked="allSelected"
-                  aria-label="Pilih semua order"
-                  @change="toggleAll"
+                  :indeterminate="someSelected"
+                  label="Pilih semua order"
+                  @toggle="toggleAll"
                 />
               </TableHead>
-              <TableHead>Order</TableHead>
-              <TableHead>Pelanggan</TableHead>
-              <TableHead>Kurir</TableHead>
-              <TableHead>Channel</TableHead>
-              <TableHead>Langkah</TableHead>
-              <TableHead>Resi</TableHead>
-              <TableHead>Petugas</TableHead>
+              <TableHead v-for="column in sortColumns" :key="column.key">
+                <button
+                  type="button"
+                  class="inline-flex cursor-pointer items-center gap-1"
+                  :aria-sort="sortKey === column.key ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'"
+                  @click="toggleSort(column.key)"
+                >
+                  {{ column.label }}
+                  <ArrowUpIcon v-if="sortKey === column.key && sortDir === 'asc'" class="size-3.5" />
+                  <ArrowDownIcon v-else-if="sortKey === column.key && sortDir === 'desc'" class="size-3.5" />
+                  <ArrowUpDownIcon v-else class="size-3.5 text-muted-foreground" />
+                </button>
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             <TableRow v-for="index in loading ? 8 : 0" :key="`skeleton-${index}`">
               <TableCell><Skeleton class="size-4" /></TableCell>
+              <TableCell><Skeleton class="h-4 w-24" /><Skeleton class="mt-2 h-3 w-16" /></TableCell>
               <TableCell><Skeleton class="h-4 w-24" /><Skeleton class="mt-2 h-3 w-16" /></TableCell>
               <TableCell><Skeleton class="h-4 w-32" /><Skeleton class="mt-2 h-3 w-20" /></TableCell>
               <TableCell><Skeleton class="h-4 w-28" /><Skeleton class="mt-2 h-3 w-20" /></TableCell>
@@ -549,24 +631,26 @@ onUnmounted(() => {
               <TableCell><Skeleton class="h-4 w-16" /></TableCell>
             </TableRow>
             <TableRow
-              v-for="order in loading ? [] : orders"
+              v-for="order in loading ? [] : sortedOrders"
               :key="order.id"
               class="cursor-pointer"
               :class="order.overdue ? 'bg-red-50/80 hover:bg-red-50' : ''"
               @click="openOrder(order)"
             >
               <TableCell @click.stop>
-                <input
-                  type="checkbox"
-                  class="size-4 cursor-pointer accent-foreground"
+                <Checkbox
                   :checked="selectedIds.includes(order.id)"
-                  :aria-label="`Pilih ${order.name}`"
-                  @change="toggleOrder(order.id)"
+                  :label="`Pilih ${order.name}`"
+                  @toggle="toggleOrder(order.id)"
                 />
               </TableCell>
               <TableCell>
                 <p class="font-mono font-bold">{{ order.name }}</p>
-                <p class="text-xs text-muted-foreground">{{ age(order.createdAt) }} · {{ order.itemCount }} item</p>
+                <p class="text-xs text-muted-foreground">{{ order.itemCount }} item</p>
+              </TableCell>
+              <TableCell>
+                <p>{{ when(order.createdAt) }}</p>
+                <p class="text-xs text-muted-foreground">{{ age(order.createdAt) }}</p>
               </TableCell>
               <TableCell>
                 <p>{{ order.customerName }}</p>
@@ -594,7 +678,7 @@ onUnmounted(() => {
               <TableCell>{{ order.assignee || '—' }}</TableCell>
             </TableRow>
             <TableRow v-if="!loading && orders.length === 0">
-              <TableCell colspan="8" class="py-10 text-center text-muted-foreground">
+              <TableCell colspan="9" class="py-10 text-center text-muted-foreground">
                 Tidak ada order di tampilan ini.
               </TableCell>
             </TableRow>

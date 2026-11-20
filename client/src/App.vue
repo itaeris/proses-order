@@ -123,7 +123,12 @@ const bulkOpen = computed(() => /^\/pengiriman-masal\/?$/.test(routePath.value))
 const filteredCourier = computed(() => (channel.value === 'indocolite' || channel.value === 'biteship' || channel.value === 'dhl' ? channel.value : null))
 const bulkOrders = computed(() => {
   const fresh = new Map(orders.value.map((order) => [order.id, order]))
-  return bulkSnapshot.value.map((order) => fresh.get(order.id) ?? order)
+  return bulkSnapshot.value.map((order) => {
+    const next = fresh.get(order.id)
+    if (!next) return order
+    if (order.awbValidatedAt && !next.awbValidatedAt) return order
+    return next
+  })
 })
 
 const initials = computed(() => {
@@ -257,10 +262,22 @@ async function openBulk() {
     bulkSnapshot.value = ids.map((id) => fresh.get(id) ?? kept.find((order) => order.id === id)).filter((order): order is OrderView => !!order)
     saveBulk()
     go('/pengiriman-masal')
-    await refreshHistory()
+    await Promise.all([refreshHistory(), refreshBulkOrders()])
   } catch (error) {
     toast.error(error instanceof Error ? error.message : 'Petugas gagal dicatat')
   }
+}
+
+function keepBulkOrders(next: OrderView[]) {
+  const fresh = new Map(next.map((order) => [order.id, order]))
+  bulkSnapshot.value = bulkSnapshot.value.map((order) => fresh.get(order.id) ?? order)
+  saveBulk()
+}
+
+async function refreshBulkOrders() {
+  if (bulkSnapshot.value.length === 0) return
+  const data = await api<{ orders: OrderView[] }>('/api/orders?view=all_active', undefined, { fresh: true })
+  keepBulkOrders(data.orders)
 }
 
 async function refreshHistory() {
@@ -303,10 +320,11 @@ async function pickupSelected(input: { date: string; time: string; vehicle: stri
 async function validateSelected(awb: string) {
   bulkJob.value = 'validate'
   try {
-    await api('/api/orders/bulk-validate', {
+    const data = await api<{ orders: OrderView[] }>('/api/orders/bulk-validate', {
       method: 'POST',
       body: JSON.stringify({ ids: bulkIds(), awb }),
     })
+    keepBulkOrders(data.orders)
     await load(true, true)
     toast.success(`Resi ${awb} cocok. Order siap pickup.`)
   } catch (error) {
@@ -337,7 +355,7 @@ async function runBulk(job: BulkJob, path: string, body: unknown, fallback: stri
       }
     })
     await load(true, true)
-    saveBulk()
+    await refreshBulkOrders()
   } catch (error) {
     toast.error(error instanceof Error ? error.message : fallback)
   } finally {
@@ -523,7 +541,7 @@ async function enter(account: SessionUser) {
   startPolling()
   if (bulkOpen.value && bulkSnapshot.value.length > 0) {
     try {
-      await refreshHistory()
+      await Promise.all([refreshHistory(), refreshBulkOrders()])
     } catch {
       // Riwayat lokal tetap ditampilkan.
     }

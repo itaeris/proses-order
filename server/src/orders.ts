@@ -333,7 +333,6 @@ export async function validateOrders(ids: unknown, actor: string, scanned: strin
       views.push(toView(row))
       continue
     }
-    if (asWarehouse(row.warehouse_step) !== 'validasi_awb') throw new ClientError('Order ini belum di langkah validasi')
     await touch(row.id, {
       awb_number: awb,
       awb_validated_at: new Date().toISOString(),

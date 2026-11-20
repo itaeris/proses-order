@@ -47,19 +47,19 @@ const FLOWS: Record<Courier, string[]> = {
     'Buat resi memakai tarif termurah. Kalau ekspedisi itu tidak bisa, dipakai ekspedisi berikutnya. Saldo terpotong saat permintaan masuk.',
     'Ajukan pickup untuk semua order. Nomor resi keluar setelah pickup diajukan.',
     'Cek status untuk semua order sampai nomor resi tampil.',
-    'Cocokkan nomor resi di halaman ini, lalu tandai sudah dicek. Siap pickup menyala setelah itu.',
+    'Cocokkan nomor resi di halaman ini. Kalau cocok, order itu siap pickup.',
   ],
   biteship: [
     'Buat resi memakai tarif termurah. Saldo terpotong dan nomor resi langsung masuk.',
     'Ajukan pickup untuk semua order.',
     'Cek status kalau nomor resi belum tampil.',
-    'Cocokkan nomor resi di halaman ini, lalu tandai sudah dicek. Siap pickup menyala setelah itu.',
+    'Cocokkan nomor resi di halaman ini. Kalau cocok, order itu siap pickup.',
   ],
   dhl: [
     'Buat resi memakai produk termurah. Kiriman dibuat di akun DHL. Label PDF ada di halaman order.',
     'Ajukan pickup untuk semua order.',
     'Cek status kalau nomor resi belum tampil.',
-    'Cocokkan nomor resi di halaman ini, lalu tandai sudah dicek. Siap pickup menyala setelah itu.',
+    'Cocokkan nomor resi di halaman ini. Kalau cocok, order itu siap pickup.',
   ],
 }
 
@@ -91,13 +91,14 @@ function resiOf(order: OrderView) {
   return resultOf.value.get(order.id)?.awb || order.awbNumber || ''
 }
 
-const awaitingCheck = computed(() => props.orders.filter((order) => resiOf(order) && !order.awbValidatedAt && order.warehouseStep === 'validasi_awb'))
+const awaitingCheck = computed(() => props.orders.filter((order) => resiOf(order) && !order.awbValidatedAt))
 const showValidate = computed(() => awaitingCheck.value.length > 0)
 const allChecked = computed(() => props.orders.length > 0 && props.orders.some((order) => order.awbValidatedAt) && props.orders.every((order) => !resiOf(order) || order.awbValidatedAt))
+const steps = computed(() => [...FLOWS[props.channel], 'Selesai. Order siap pickup, halaman ini ditutup.'])
 
 const activeStep = computed(() => {
   if (props.results.length === 0 || openRows.value.length === 0) return 0
-  if (allChecked.value) return 4
+  if (allChecked.value) return steps.value.length
   if (openRows.value.every((row) => row.awb && row.pickup)) return 3
   if (openRows.value.every((row) => row.pickup)) return 2
   return 1
@@ -149,15 +150,22 @@ function tomorrow() {
     </div>
 
     <div class="grid min-h-0 flex-1 gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
-      <ol class="space-y-3 rounded-xl border bg-card p-4 shadow-xs">
-        <li v-for="(step, index) in FLOWS[channel]" :key="step" class="flex gap-2 text-sm">
-          <span
-            class="grid size-5 shrink-0 place-items-center rounded-full text-[11px] font-medium"
-            :class="index < activeStep ? 'bg-emerald-700 text-white' : index === activeStep && results.length ? 'bg-primary text-primary-foreground' : 'bg-muted'"
-          >
-            {{ index + 1 }}
-          </span>
-          <span :class="index > activeStep || results.length === 0 ? '' : 'font-medium'">{{ step }}</span>
+      <ol class="rounded-xl border bg-card p-4 shadow-xs">
+        <li v-for="(step, index) in steps" :key="step" class="flex gap-3">
+          <div class="flex w-5 shrink-0 flex-col items-center">
+            <span
+              class="grid size-5 place-items-center rounded-full text-[11px] font-medium"
+              :class="index < activeStep ? 'bg-emerald-700 text-white' : index === activeStep && results.length ? 'bg-primary text-primary-foreground' : 'bg-muted'"
+            >
+              <CheckIcon v-if="index < activeStep" class="size-3" />
+              <template v-else>{{ index + 1 }}</template>
+            </span>
+            <span v-if="index < steps.length - 1" class="my-1 w-px flex-1" :class="index < activeStep ? 'bg-emerald-700' : 'bg-border'" />
+          </div>
+          <p
+            class="min-w-0 text-sm"
+            :class="[index < steps.length - 1 ? 'pb-4' : '', index < activeStep || (index === activeStep && results.length) ? 'font-medium' : 'text-muted-foreground']"
+          >{{ step }}</p>
         </li>
       </ol>
 
@@ -166,8 +174,9 @@ function tomorrow() {
           <div class="mr-auto min-w-0">
             <p class="text-sm font-medium">{{ orders.length }} order</p>
             <p v-if="summary" class="text-xs text-muted-foreground">{{ summary }}</p>
-            <p v-if="allChecked" class="text-xs text-muted-foreground">Resi sudah dicek. Order siap pickup.</p>
+            <p v-if="allChecked" class="text-xs text-muted-foreground">Semua resi cocok. Order siap pickup.</p>
           </div>
+          <Button v-if="allChecked" type="button" class="cursor-pointer" @click="emit('back')">Selesai</Button>
           <Button v-if="showShip" type="button" class="cursor-pointer" :disabled="job !== '' || orders.length === 0" @click="emit('ship')">
             {{ job === 'ship' ? 'Membuat resi…' : 'Buat resi' }}
           </Button>
